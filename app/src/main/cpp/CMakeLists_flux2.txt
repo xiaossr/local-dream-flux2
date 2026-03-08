@@ -1,0 +1,149 @@
+cmake_minimum_required(VERSION 3.18)
+project(libstable_diffusion_core.so C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# --- ExecuTorch SDK ---
+# Set this to your ExecuTorch install/build directory
+if(NOT DEFINED EXECUTORCH_ROOT)
+  set(EXECUTORCH_ROOT "" CACHE PATH "Path to ExecuTorch source/build root")
+endif()
+
+if(NOT EXECUTORCH_ROOT)
+  message(FATAL_ERROR "EXECUTORCH_ROOT must be set. Point it to your ExecuTorch build directory.")
+endif()
+
+if(WIN32)
+    set(PLATFORM_NAME "windows")
+    set(HOST_TAG "windows-x86_64")
+else()
+    set(PLATFORM_NAME "linux")
+    set(HOST_TAG "linux-x86_64")
+endif()
+
+set(OUTPUT_SUFFIX ${CMAKE_ANDROID_ARCH_ABI})
+set(PLATFORM_LIBS log android dl m c)
+set(ANDROID_TOOLCHAIN_ROOT ${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${HOST_TAG} CACHE PATH "Android NDK root path")
+
+add_compile_options(
+    -O3
+    -Wall
+    -fno-rtti
+    -fPIC
+    -fvisibility=hidden
+)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=for-loop-analysis")
+
+# --- ExecuTorch includes and libraries ---
+# These paths assume a standard ExecuTorch CMake build output structure.
+# Adjust as needed based on your ExecuTorch build configuration.
+
+set(EXECUTORCH_INCLUDE_DIRS
+    ${EXECUTORCH_ROOT}/..
+    ${EXECUTORCH_ROOT}/../third-party/flatbuffers/include
+    ${EXECUTORCH_ROOT}/sdk/include
+    ${EXECUTORCH_ROOT}/../extension
+)
+
+# ExecuTorch static libraries (built for Android aarch64)
+set(EXECUTORCH_LIB_DIR ${EXECUTORCH_ROOT}/lib)
+
+# Core runtime
+find_library(EXECUTORCH_LIB executorch PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+find_library(EXECUTORCH_MODULE_LIB extension_module_static PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+find_library(EXECUTORCH_TENSOR_LIB extension_tensor PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+find_library(EXECUTORCH_DATA_LOADER_LIB extension_data_loader PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+
+# XNNPACK backend (CPU acceleration)
+find_library(XNNPACK_BACKEND_LIB xnnpack_backend PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+
+# Portable kernels (fallback for ops not covered by XNNPACK)
+find_library(PORTABLE_KERNELS_LIB portable_kernels PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+find_library(PORTABLE_OPS_LIB portable_ops_lib PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+
+# Quantized kernels (for int8 quantized models)
+find_library(QUANTIZED_KERNELS_LIB quantized_kernels PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+find_library(QUANTIZED_OPS_LIB quantized_ops_lib PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+
+# QNN backend (optional, for Snapdragon NPU)
+find_library(QNN_BACKEND_LIB qnn_executorch_backend PATHS ${EXECUTORCH_LIB_DIR} NO_DEFAULT_PATH)
+
+# Collect all found ET libraries
+set(ET_LIBS "")
+foreach(lib
+    EXECUTORCH_LIB
+    EXECUTORCH_MODULE_LIB
+    EXECUTORCH_TENSOR_LIB
+    EXECUTORCH_DATA_LOADER_LIB
+    XNNPACK_BACKEND_LIB
+    PORTABLE_KERNELS_LIB
+    PORTABLE_OPS_LIB
+)
+    if(${lib})
+        list(APPEND ET_LIBS ${${lib}})
+    else()
+        message(WARNING "${lib} not found in ${EXECUTORCH_LIB_DIR}")
+    endif()
+endforeach()
+
+# Optional libraries
+if(QUANTIZED_KERNELS_LIB)
+    list(APPEND ET_LIBS ${QUANTIZED_KERNELS_LIB})
+endif()
+if(QUANTIZED_OPS_LIB)
+    list(APPEND ET_LIBS ${QUANTIZED_OPS_LIB})
+endif()
+if(QNN_BACKEND_LIB)
+    list(APPEND ET_LIBS ${QNN_BACKEND_LIB})
+    message(STATUS "QNN backend found — NPU acceleration enabled")
+endif()
+
+# --- Third-party libraries (kept from original) ---
+
+set(PACKAGE_INCLUDES
+    ${EXECUTORCH_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cpp-httplib
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/json/include/nlohmann
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/json/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/stb
+)
+
+# tokenizers-cpp (for Qwen3 tokenizer)
+set(TOKENZIER_CPP_PATH ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tokenizers-cpp)
+
+if(NOT DEFINED CMAKE_ANDROID_ARCH_ABI)
+    set(CMAKE_ANDROID_ARCH_ABI "arm64-v8a" CACHE STRING "Android ABI" FORCE)
+endif()
+if(NOT DEFINED ANDROID_ABI)
+    set(ANDROID_ABI ${CMAKE_ANDROID_ARCH_ABI} CACHE STRING "Android ABI" FORCE)
+endif()
+
+add_subdirectory(${TOKENZIER_CPP_PATH} tokenizers EXCLUDE_FROM_ALL)
+
+# --- Source files ---
+file(GLOB SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/main_flux2.cpp"
+)
+
+add_definitions(-DQNN_API=__attribute__\(\(visibility\(\"default\"\)\)\))
+
+# --- Executable ---
+add_executable(${PROJECT_NAME} ${SOURCES})
+target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-s")
+target_include_directories(${PROJECT_NAME} PRIVATE ${PACKAGE_INCLUDES})
+
+set_target_properties(${PROJECT_NAME}
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${OUTPUT_SUFFIX}"
+)
+
+# --- Link ---
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+    ${PLATFORM_LIBS}
+    ${ET_LIBS}
+    tokenizers_cpp
+)

@@ -123,7 +123,7 @@ class ModelDownloadService : Service() {
                 downloadFile(fileUrl, tempFile, modelId, modelName)
 
                 when (modelType) {
-                    "sd" -> {
+                    "sd", "flux2" -> {
                         if (isZip) {
                             val modelDir = File(getModelsDir(), modelId)
 
@@ -281,7 +281,7 @@ class ModelDownloadService : Service() {
     }
 
     private fun getModelsDir(): File {
-        return File(filesDir, "models").apply {
+        return File("/data/local/tmp/localdream", "models").apply {
             if (!exists()) mkdirs()
         }
     }

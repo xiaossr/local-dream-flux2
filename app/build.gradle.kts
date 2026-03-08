@@ -115,7 +115,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.material3.xml)
     implementation(libs.coil.compose)
-    implementation(libs.cropify)
+    // implementation(libs.cropify) // TODO: re-enable when JitPack is back up
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

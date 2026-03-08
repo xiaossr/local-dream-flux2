@@ -51,7 +51,6 @@ class HistoryManager(private val context: Context) {
                 put("size", "${params.width}x${params.height}")
                 put("runOnCpu", params.runOnCpu)
                 put("denoiseStrength", params.denoiseStrength)
-                put("useOpenCL", params.useOpenCL)
                 put("scheduler", params.scheduler)
                 put("timestamp", timestamp)
             }
@@ -142,10 +141,9 @@ class HistoryManager(private val context: Context) {
                     generationTime = json.optString("generationTime", ""),
                     width = width,
                     height = height,
-                    runOnCpu = json.getBoolean("runOnCpu"),
+                    runOnCpu = json.optBoolean("runOnCpu", true),
                     denoiseStrength = json.optDouble("denoiseStrength", 0.6).toFloat(),
-                    useOpenCL = json.optBoolean("useOpenCL", false),
-                    scheduler = json.optString("scheduler", "dpm")
+                    scheduler = json.optString("scheduler", "euler")
                 )
             } catch (e: Exception) {
                 Log.e("HistoryManager", "Failed to load history item params", e)

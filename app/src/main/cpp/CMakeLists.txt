@@ -4,137 +4,89 @@ project(libstable_diffusion_core.so C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# QNN SDK PATH
-set(QNN_SDK_ROOT /data/qairt/2.39.0.250926)
+# --- ExecuTorch SDK ---
+# Set this to your ExecuTorch install/build directory
+if(NOT DEFINED EXECUTORCH_ROOT)
+  set(EXECUTORCH_ROOT "" CACHE PATH "Path to ExecuTorch source/build root")
+endif()
 
-file(COPY ${QNN_SDK_ROOT}/examples/QNN/SampleApp/SampleApp/
-    DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp)
-execute_process(COMMAND git apply --directory=app/src/main/cpp/ --verbose ${CMAKE_CURRENT_SOURCE_DIR}/SampleApp.patch
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    RESULT_VARIABLE patch_result
-    OUTPUT_VARIABLE patch_output
-    ERROR_VARIABLE patch_error
-)
-message(STATUS "Patch: ${patch_result}")
-message(STATUS "Patch: ${patch_output}")
-message(STATUS "Patch: ${patch_error}")
-
-make_directory(${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtp.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnSystem.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV68Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV69Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV73Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV75Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV79Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/aarch64-android/libQnnHtpV81Stub.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v68/unsigned/libQnnHtpV68.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v68/unsigned/libQnnHtpV68Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v69/unsigned/libQnnHtpV69.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v69/unsigned/libQnnHtpV69Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v73/unsigned/libQnnHtpV73.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v73/unsigned/libQnnHtpV73Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v75/unsigned/libQnnHtpV75.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v75/unsigned/libQnnHtpV75Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v79/unsigned/libQnnHtpV79.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v79/unsigned/libQnnHtpV79Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v81/unsigned/libQnnHtpV81.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-file(COPY ${QNN_SDK_ROOT}/lib/hexagon-v81/unsigned/libQnnHtpV81Skel.so
-    DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/qnnlibs)
-
-if(WIN32)
-    set(PLATFORM_NAME "windows")
-    set(HOST_TAG "windows-x86_64")
-else()
-    set(PLATFORM_NAME "linux")
-    set(HOST_TAG "linux-x86_64")
+if(NOT EXECUTORCH_ROOT)
+  message(FATAL_ERROR "EXECUTORCH_ROOT must be set. Point it to your ExecuTorch build directory.")
 endif()
 
 set(OUTPUT_SUFFIX ${CMAKE_ANDROID_ARCH_ABI})
-set(PLATFORM_LIBS log android dl m c GLESv2 EGL)
-set(ANDROID_TOOLCHAIN_ROOT ${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${HOST_TAG} CACHE PATH "Android NDK root path")
+set(PLATFORM_LIBS log android dl m c)
+# ANDROID_TOOLCHAIN_ROOT is set by the NDK toolchain file automatically
 
 add_compile_options(
     -O3
     -Wall
     -fno-rtti
     -fPIC
-    # -Werror
     -fvisibility=hidden
 )
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=for-loop-analysis")
 
-# ZSTD
-set(ZSTD_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/zstd)
+# Skip missing cmake_macros.h (generated header not needed for ExecuTorch on Android)
+add_compile_definitions(C10_USING_CUSTOM_GENERATED_MACROS)
 
-set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "Build zstd programs" FORCE)
-set(ZSTD_BUILD_STATIC ON CACHE BOOL "Build static zstd library" FORCE)
-set(ZSTD_MULTITHREAD_SUPPORT OFF CACHE BOOL "Enable multithreading support" FORCE)
-set(ZSTD_BUILD_TESTS OFF CACHE BOOL "Build zstd tests" FORCE)
+# --- ExecuTorch includes and libraries ---
+# These paths assume a standard ExecuTorch CMake build output structure.
+# Adjust as needed based on your ExecuTorch build configuration.
 
-add_subdirectory(${ZSTD_ROOT_DIR}/build/cmake zstd EXCLUDE_FROM_ALL)
+# EXECUTORCH_ROOT is cmake-out-android; source root is two levels up
+set(EXECUTORCH_SRC_ROOT ${EXECUTORCH_ROOT}/..)
+set(EXECUTORCH_INCLUDE_DIRS
+    ${EXECUTORCH_SRC_ROOT}/..
+    ${EXECUTORCH_SRC_ROOT}
+    ${EXECUTORCH_SRC_ROOT}/runtime/core/portable_type/c10
+    ${EXECUTORCH_SRC_ROOT}/third-party/flatbuffers/include
+    ${EXECUTORCH_ROOT}/include
+    ${EXECUTORCH_ROOT}/sdk/include
+)
 
-set(ZSTD_INCLUDE_DIR ${ZSTD_ROOT_DIR}/lib)
+# ExecuTorch static libraries — use direct paths (find_library fails in cross-compilation)
+# Order matters: dependents before dependencies
+set(ET_LIBS
+    ${EXECUTORCH_ROOT}/extension/module/libextension_module_static.a
+    ${EXECUTORCH_ROOT}/extension/tensor/libextension_tensor.a
+    ${EXECUTORCH_ROOT}/extension/data_loader/libextension_data_loader.a
+    ${EXECUTORCH_ROOT}/extension/named_data_map/libextension_named_data_map.a
+    ${EXECUTORCH_ROOT}/extension/flat_tensor/libextension_flat_tensor.a
+    ${EXECUTORCH_ROOT}/extension/threadpool/libextension_threadpool.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/libxnnpack_backend.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/XNNPACK/libXNNPACK.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/XNNPACK/libxnnpack-microkernels-prod.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/cpuinfo/libcpuinfo.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/cpuinfo/libcpuinfo_internals.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/pthreadpool/libpthreadpool.a
+    ${EXECUTORCH_ROOT}/kernels/portable/libportable_ops_lib.a
+    ${EXECUTORCH_ROOT}/kernels/portable/libportable_kernels.a
+    ${EXECUTORCH_ROOT}/libexecutorch.a
+    ${EXECUTORCH_ROOT}/libexecutorch_core.a
+    ${EXECUTORCH_ROOT}/kleidiai/libkleidiai.a
+)
 
-# MNN
-set(MNN_ROOT_DIR 3rdparty/MNN)
-set(MNN_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(MNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(MNN_LOW_MEMORY ON CACHE BOOL "" FORCE)
-set(MNN_CPU_WEIGHT_DEQUANT_GEMM ON CACHE BOOL "" FORCE)
-set(MNN_BUILD_FOR_ANDROID ON CACHE BOOL "" FORCE)
-set(MNN_BUILD_FOR_ANDROID_COMMAND ON CACHE BOOL "" FORCE)
-set(MNN_USE_LOGCAT OFF CACHE BOOL "" FORCE)
-set(MNN_OPENCL ON CACHE BOOL "" FORCE)
-set(MNN_SUPPORT_TRANSFORMER_FUSE ON CACHE BOOL "" FORCE)
-add_subdirectory(3rdparty/MNN)
+# Verify all required libs exist
+foreach(_lib ${ET_LIBS})
+    if(NOT EXISTS ${_lib})
+        message(WARNING "ExecuTorch lib not found: ${_lib}")
+    endif()
+endforeach()
 
-set(XTENSOR_USE_XSIMD ON)
+# --- Third-party libraries (kept from original) ---
 
 set(PACKAGE_INCLUDES
-    ${MNN_ROOT_DIR}/include
-    ${QNN_SDK_ROOT}/include/QNN
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/
+    ${EXECUTORCH_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/cpp-httplib
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/json/include/nlohmann
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/json/include
     ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/stb
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/xtensor/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/xtl/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/xsimd/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/xtensor-blas/include
-    ${ZSTD_INCLUDE_DIR}
-
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/CachingUtil
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/Log
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/PAL/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/Utils
-    ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src/WrapperUtils
 )
 
-# tokenizers-cpp
+# tokenizers-cpp (for Qwen3 tokenizer)
 set(TOKENZIER_CPP_PATH ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tokenizers-cpp)
 
 if(NOT DEFINED CMAKE_ANDROID_ARCH_ABI)
@@ -146,39 +98,16 @@ endif()
 
 add_subdirectory(${TOKENZIER_CPP_PATH} tokenizers EXCLUDE_FROM_ALL)
 
-# set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
-set(SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/SampleApp/src)
-message(STATUS "SRC_DIR: ${SRC_DIR}")
-set(SRC_DIR_LOG ${SRC_DIR}/Log)
-set(SRC_DIR_PAL_LINUX ${SRC_DIR}/PAL/src/linux)
-set(SRC_DIR_PAL_COMMON ${SRC_DIR}/PAL/src/common)
-set(SRC_DIR_UTILS ${SRC_DIR}/Utils)
-set(SRC_DIR_WRAPPER_UTILS ${SRC_DIR}/WrapperUtils)
-
-# collect source files
+# --- Source files ---
 file(GLOB SOURCES
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
-    # "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-    "${SRC_DIR}/QnnSampleApp.cpp"
-    "${SRC_DIR_LOG}/*.cpp"
-    "${SRC_DIR_PAL_LINUX}/*.cpp"
-    "${SRC_DIR_PAL_COMMON}/*.cpp"
-    "${SRC_DIR_UTILS}/*.cpp"
-    "${SRC_DIR_WRAPPER_UTILS}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/main_flux2.cpp"
 )
 
-if(QNN_DEBUG_ENABLE)
-    add_compile_options(-O0 -g)
-    add_definitions(-DQNN_API=)
-else()
-    add_definitions(-DQNN_API=__attribute__\(\(visibility\(\"default\"\)\)\))
-endif()
+add_definitions(-DQNN_API=__attribute__\(\(visibility\(\"default\"\)\)\))
 
-# executable
+# --- Executable ---
 add_executable(${PROJECT_NAME} ${SOURCES})
-if(NOT QNN_DEBUG_ENABLE)
-    target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-s")
-endif()
+target_link_options(${PROJECT_NAME} PRIVATE "-Wl,-s")
 target_include_directories(${PROJECT_NAME} PRIVATE ${PACKAGE_INCLUDES})
 
 set_target_properties(${PROJECT_NAME}
@@ -186,16 +115,35 @@ set_target_properties(${PROJECT_NAME}
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/${OUTPUT_SUFFIX}"
 )
 
-target_compile_definitions(${PROJECT_NAME}
-    PRIVATE
-    XTENSOR_USE_XSIMD
-)
-
-# link
+# --- Link ---
+# Kernel and backend libs need --whole-archive for static registration
 target_link_libraries(${PROJECT_NAME}
     PRIVATE
     ${PLATFORM_LIBS}
-    MNN
+    ${EXECUTORCH_ROOT}/extension/module/libextension_module_static.a
+    ${EXECUTORCH_ROOT}/extension/tensor/libextension_tensor.a
+    ${EXECUTORCH_ROOT}/extension/data_loader/libextension_data_loader.a
+    ${EXECUTORCH_ROOT}/extension/named_data_map/libextension_named_data_map.a
+    ${EXECUTORCH_ROOT}/extension/flat_tensor/libextension_flat_tensor.a
+    ${EXECUTORCH_ROOT}/extension/threadpool/libextension_threadpool.a
+    -Wl,--whole-archive
+    ${EXECUTORCH_ROOT}/backends/xnnpack/libxnnpack_backend.a
+    ${EXECUTORCH_ROOT}/kleidiai/libkleidiai.a
+    ${EXECUTORCH_ROOT}/configurations/liboptimized_native_cpu_ops_lib.a
+    ${EXECUTORCH_ROOT}/kernels/quantized/libquantized_ops_lib.a
+    ${EXECUTORCH_ROOT}/kernels/quantized/libquantized_kernels.a
+    -Wl,--no-whole-archive
+    ${EXECUTORCH_ROOT}/kernels/optimized/liboptimized_kernels.a
+    ${EXECUTORCH_ROOT}/kernels/optimized/libcpublas.a
+    ${EXECUTORCH_ROOT}/kernels/optimized/libeigen_blas.a
+    ${EXECUTORCH_ROOT}/kernels/portable/liboptimized_portable_kernels.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/XNNPACK/libXNNPACK.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/XNNPACK/libxnnpack-microkernels-prod.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/cpuinfo/libcpuinfo.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/cpuinfo/libcpuinfo_internals.a
+    ${EXECUTORCH_ROOT}/backends/xnnpack/third-party/pthreadpool/libpthreadpool.a
+    ${EXECUTORCH_ROOT}/kernels/portable/cpu/util/libkernels_util_all_deps.a
+    ${EXECUTORCH_ROOT}/libexecutorch.a
+    ${EXECUTORCH_ROOT}/libexecutorch_core.a
     tokenizers_cpp
-    libzstd
 )

@@ -25,8 +25,6 @@ class GenerationPreferences(private val context: Context) {
     private fun getDenoiseStrengthKey(modelId: String) =
         floatPreferencesKey("${modelId}_denoise_strength")
 
-    private fun getUseOpenCLKey(modelId: String) = booleanPreferencesKey("${modelId}_use_opencl")
-
     private fun getBatchCountsKey(modelId: String) = intPreferencesKey("${modelId}_batch_counts")
     private fun getSchedulerKey(modelId: String) = stringPreferencesKey("${modelId}_scheduler")
 
@@ -69,7 +67,6 @@ class GenerationPreferences(private val context: Context) {
         width: Int,
         height: Int,
         denoiseStrength: Float,
-        useOpenCL: Boolean,
         batchCounts: Int,
         scheduler: String
     ) {
@@ -82,7 +79,6 @@ class GenerationPreferences(private val context: Context) {
             preferences[getWidthKey(modelId)] = width
             preferences[getHeightKey(modelId)] = height
             preferences[getDenoiseStrengthKey(modelId)] = denoiseStrength
-            preferences[getUseOpenCLKey(modelId)] = useOpenCL
             preferences[getBatchCountsKey(modelId)] = batchCounts
             preferences[getSchedulerKey(modelId)] = scheduler
         }
@@ -108,15 +104,14 @@ class GenerationPreferences(private val context: Context) {
                 GenerationPrefs(
                     prompt = preferences[getPromptKey(modelId)] ?: "",
                     negativePrompt = preferences[getNegativePromptKey(modelId)] ?: "",
-                    steps = preferences[getStepsKey(modelId)] ?: 20f,
-                    cfg = preferences[getCfgKey(modelId)] ?: 7f,
+                    steps = preferences[getStepsKey(modelId)] ?: 4f,
+                    cfg = preferences[getCfgKey(modelId)] ?: 1f,
                     seed = preferences[getSeedKey(modelId)] ?: "",
                     width = preferences[getWidthKey(modelId)] ?: -1,
                     height = preferences[getHeightKey(modelId)] ?: -1,
                     denoiseStrength = preferences[getDenoiseStrengthKey(modelId)] ?: 0.6f,
-                    useOpenCL = preferences[getUseOpenCLKey(modelId)] ?: false,
                     batchCounts = preferences[getBatchCountsKey(modelId)] ?: 1,
-                    scheduler = preferences[getSchedulerKey(modelId)] ?: "dpm"
+                    scheduler = preferences[getSchedulerKey(modelId)] ?: "euler"
                 )
             }
     }
@@ -131,7 +126,6 @@ class GenerationPreferences(private val context: Context) {
             preferences.remove(getWidthKey(modelId))
             preferences.remove(getHeightKey(modelId))
             preferences.remove(getDenoiseStrengthKey(modelId))
-            preferences.remove(getUseOpenCLKey(modelId))
             preferences.remove(getBatchCountsKey(modelId))
             preferences.remove(getSchedulerKey(modelId))
         }
@@ -141,13 +135,12 @@ class GenerationPreferences(private val context: Context) {
 data class GenerationPrefs(
     val prompt: String = "",
     val negativePrompt: String = "",
-    val steps: Float = 20f,
-    val cfg: Float = 7f,
+    val steps: Float = 4f,
+    val cfg: Float = 1f,
     val seed: String = "",
     val width: Int = -1,
     val height: Int = -1,
     val denoiseStrength: Float = 0.6f,
-    val useOpenCL: Boolean = false,
     val batchCounts: Int = 1,
-    val scheduler: String = "dpm"
+    val scheduler: String = "euler"
 )

@@ -9,19 +9,19 @@
       "cacheVariables": {
         "CMAKE_ANDROID_ARCH_ABI": "arm64-v8a",
         "ANDROID_ABI": "arm64-v8a",
-        "ANDROID_PLATFORM": "android-21",
+        "ANDROID_PLATFORM": "android-28",
         "ANDROID_STL": "c++_static",
         "CMAKE_SYSTEM_NAME": "Android",
-        "ANDROID_NATIVE_API_LEVEL": "21",
-        "CMAKE_SYSTEM_VERSION": "21",
+        "ANDROID_NATIVE_API_LEVEL": "28",
+        "CMAKE_SYSTEM_VERSION": "28",
         "CMAKE_ANDROID_NDK": "$env{ANDROID_NDK_ROOT}",
-        "CMAKE_C_COMPILER_LAUNCHER": "ccache",
-        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "EXECUTORCH_ROOT": "$env{EXECUTORCH_ROOT}"
       },
       "toolchainFile": "$env{ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake",
       "environment": {
-        "ANDROID_NDK_ROOT": "/data/android-ndk-r28"
+        "ANDROID_NDK_ROOT": "/Users/xiaog/urop/android-ndk-r28",
+        "EXECUTORCH_ROOT": "/Users/xiaog/urop/executorch/cmake-out-android"
       }
     },
     {

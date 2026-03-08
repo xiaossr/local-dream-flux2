@@ -8,6 +8,7 @@
     <string name="absolutereality_description">Realistic Image Generation</string>
     <string name="sd21_description">General Image Generation</string>
     <string name="ponyv55_description">Pony Diffusionシリーズ</string>
+    <string name="flux2klein_description">FLUX.2 蒸留画像生成</string>
     <string name="backend_notify">バックエンドサービス実行中</string>
     <string name="backend_notify_title">SD モデルのバックエンド</string>
     <string name="generating_notify">画像の生成中...</string>
@@ -24,7 +25,7 @@
     <string name="yes">はい</string>
     <string name="no">いいえ</string>
     <string name="about_app">重要</string>
-    <string name="must_read">このアプリは、CPU/GPU および一部の Qualcomm 製 NPU 上で Stable Diffusion による画像生成を実行できます。\n\nお使いのチップが以下に記載されていない場合、CPU/GPU のみで実行されます。\n対応している NPU 一覧:\n\n- Snapdragon 8 Gen 1\n- Snapdragon 8 Gen 2\n- Snapdragon 8 Gen 3\n- Snapdragon 8 Elite\n- Snapdragon 8 Elite Gen 5\n\nHexagon V68 アーキテクチャ以降の NPU については、実験的なサポートが提供されていますが、\nNPU 上での実行が必ずしも保証されるわけではありません。\n\nこのプロジェクトはオープンソースで、\nhttps://github.com/xororz/local-dream\nにてソースコードの閲覧や Issue の報告ができます。</string>
+    <string name="must_read">このアプリは、FLUX.2 と ExecuTorch を使用してデバイス上で画像生成を実行できます。\n\nこのプロジェクトはオープンソースで、\nhttps://github.com/xororz/local-dream\nにてソースコードの閲覧や Issue の報告ができます。</string>
     <string name="help">help</string>
     <string name="available_models">利用可能なモデル</string>
     <string name="selected_items">%d 選択</string>
@@ -55,7 +56,7 @@
     <string name="no_npu_models">モデルなし</string>
     <string name="img2img_hint">img2img機能を使用します。必要がない場合や問題が発生しない場合はオフにしてください。</string>
     <string name="show_process">生成プロセスを表示</string>
-    <string name="show_process_hint">NPU モデル専用機能です。</string>
+    <string name="show_process_hint">中間生成ステップを表示します。生成速度が低下します。</string>
     <string name="preview_stride">プレビューストライド</string>
     <string name="preview_stride_hint">%d ステップごとにプレビューを更新します (1 ～ 10)。</string>
     <string name="download_patch">高解像度パッチをダウンロード</string>
@@ -155,7 +156,7 @@
     <string name="zip_file_selected">ZIPファイルを選択</string>
     <string name="file_selected">ファイルを選択</string>
     <string name="add_model">モデルを追加</string>
-    <string name="custom_model_hint">SD1.5アーキテクチャセーフテンソルモデルファイルのみをサポートします</string>
+    <string name="custom_model_hint">FLUX.2 ExecuTorch モデルファイル（.pte）をモデルディレクトリに配置してください</string>
     <string name="custom_npu_model_hint">NPUモデルファイルを含むZIPファイルを選択してください。Qualcommデバイスでのみ利用可能です。</string>
     <string name="converting">変換中...</string>
     <string name="model_conversion_success">モデル変換完了!</string>

@@ -105,15 +105,11 @@ data class Model(
     val baseUrl: String,
     val fileUri: String = "",
     val generationSize: Int = 512,
-    val textEmbeddingSize: Int = 768,
     val approximateSize: String = "1GB",
     val isDownloaded: Boolean = false,
-    val needsUpgrade: Boolean = false,
     val defaultPrompt: String = "",
-    val defaultNegativePrompt: String = "",
-    val runOnCpu: Boolean = false,
-    val useCpuClip: Boolean = false,
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    val runOnCpu: Boolean = true
 
 ) {
 
@@ -126,8 +122,7 @@ data class Model(
             putExtra(ModelDownloadService.EXTRA_MODEL_NAME, name)
             putExtra(ModelDownloadService.EXTRA_FILE_URL, "${baseUrl.removeSuffix("/")}/$fileUri")
             putExtra(ModelDownloadService.EXTRA_IS_ZIP, fileUri.endsWith(".zip"))
-            putExtra(ModelDownloadService.EXTRA_IS_NPU, !runOnCpu)
-            putExtra(ModelDownloadService.EXTRA_MODEL_TYPE, "sd")
+            putExtra(ModelDownloadService.EXTRA_MODEL_TYPE, "flux2")
         }
 
         context.startForegroundService(intent)
@@ -182,7 +177,8 @@ data class Model(
         }
 
         fun getModelsDir(context: Context): File {
-            return File(context.filesDir, MODELS_DIR).apply {
+            // Use /data/local/tmp for fast I/O — accessible via adb push without root
+            return File("/data/local/tmp/localdream", MODELS_DIR).apply {
                 if (!exists()) mkdirs()
             }
         }
@@ -201,22 +197,9 @@ data class Model(
                 return false
             }
 
-            val files = modelDir.listFiles()
-            return files != null && files.isNotEmpty()
-        }
-
-        fun needsModelUpgrade(
-            context: Context,
-            modelId: String,
-            isNpu: Boolean
-        ): Boolean {
-            if (!isNpu) return false
-
-            val modelDir = File(getModelsDir(context), modelId)
-            if (!modelDir.exists()) return false
-
-            val vFile = File(modelDir, "v3")
-            return !vFile.exists()
+            // Check for FLUX.2 model marker
+            val configFile = File(modelDir, "export_config.json")
+            return configFile.exists()
         }
     }
 }
@@ -236,7 +219,6 @@ data class UpscalerModel(
             putExtra(ModelDownloadService.EXTRA_MODEL_NAME, name)
             putExtra(ModelDownloadService.EXTRA_FILE_URL, "${baseUrl.removeSuffix("/")}/$fileUri")
             putExtra(ModelDownloadService.EXTRA_IS_ZIP, false)
-            putExtra(ModelDownloadService.EXTRA_IS_NPU, false)
             putExtra(ModelDownloadService.EXTRA_MODEL_TYPE, "upscaler")
         }
 
@@ -346,14 +328,10 @@ class ModelRepository(private val context: Context) {
         if (modelsDir.exists() && modelsDir.isDirectory) {
             modelsDir.listFiles()?.forEach { dir ->
                 if (dir.isDirectory) {
-                    val finishedFile = File(dir, "finished")
-                    val npuCustomFile = File(dir, "npucustom")
-
-                    if (finishedFile.exists()) {
-                        val customModel = createCustomModel(dir, isNpu = false)
-                        customModels.add(customModel)
-                    } else if (npuCustomFile.exists()) {
-                        val customModel = createCustomModel(dir, isNpu = true)
+                    // Check for FLUX.2 model marker (export_config.json)
+                    val configFile = File(dir, "export_config.json")
+                    if (configFile.exists()) {
+                        val customModel = createCustomModel(dir)
                         customModels.add(customModel)
                     }
                 }
@@ -363,7 +341,7 @@ class ModelRepository(private val context: Context) {
         return customModels.sortedBy { it.name.lowercase() }
     }
 
-    private fun createCustomModel(modelDir: File, isNpu: Boolean = false): Model {
+    private fun createCustomModel(modelDir: File): Model {
         val modelId = modelDir.name
 
         return Model(
@@ -373,245 +351,38 @@ class ModelRepository(private val context: Context) {
             baseUrl = "",
             approximateSize = "Custom",
             isDownloaded = true,
-            defaultPrompt = "masterpiece, best quality, a cat sat on a mat,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            runOnCpu = !isNpu,
-            useCpuClip = true,
+            defaultPrompt = "a beautiful landscape, high quality",
             isCustom = true
         )
     }
 
     private fun initializeModels(): List<Model> {
         val customModels = scanCustomModels()
+        val customIds = customModels.map { it.id }.toSet()
 
         val predefinedModels = mutableListOf(
-            createAnythingV5Model(),
-            createAnythingV5ModelCPU(),
-            createQteaMixModel(),
-            createQteaMixModelCPU(),
-            createAbsoluteRealityModel(),
-            createAbsoluteRealityModelCPU(),
-            createCuteYukiMixModel(),
-            createCuteYukiMixModelCPU(),
-            createChilloutMixModelCPU(),
-            createChilloutMixModel(),
-        )
+            createFlux2KleinModel(),
+        ).filter { it.id !in customIds }
 
         return customModels + predefinedModels
     }
 
-    private fun createAnythingV5Model(): Model {
-        val id = "anythingv5"
-        val soc = getDeviceSoc()
-        val suffix = Model.getChipsetSuffix(soc) ?: "min"
-        val fileUri = "xororz/sd-qnn/resolve/main/AnythingV5_qnn2.28_${suffix}.zip"
-
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-        val needsUpgrade = Model.needsModelUpgrade(context, id, true)
-
-        return Model(
-            id = id,
-            name = "Anything V5.0",
-            description = context.getString(R.string.anythingv5_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.1GB",
-            isDownloaded = isDownloaded,
-            needsUpgrade = needsUpgrade,
-            defaultPrompt = "masterpiece, best quality, 1girl, solo, cute, white hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            runOnCpu = false,
-            useCpuClip = true
-        )
-    }
-
-    private fun createAnythingV5ModelCPU(): Model {
-        val id = "anythingv5cpu"
-        val fileUri = "xororz/sd-mnn/resolve/main/AnythingV5.zip"
+    private fun createFlux2KleinModel(): Model {
+        val id = "flux2klein"
+        val fileUri = "xororz/flux2-klein-executorch/resolve/main/flux2_klein_int8.zip"
 
         val isDownloaded = Model.isModelDownloaded(context, id, false)
 
         return Model(
             id = id,
-            name = "Anything V5.0",
-            description = context.getString(R.string.anythingv5_description),
+            name = "FLUX.2-klein",
+            description = context.getString(R.string.flux2klein_description),
             baseUrl = baseUrl,
             fileUri = fileUri,
-            approximateSize = "1.2GB",
+            generationSize = 512,
+            approximateSize = "4.5GB",
             isDownloaded = isDownloaded,
-            defaultPrompt = "masterpiece, best quality, 1girl, solo, cute, white hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            runOnCpu = true
-        )
-    }
-
-    private fun createQteaMixModel(): Model {
-        val id = "qteamix"
-        val soc = getDeviceSoc()
-        val suffix = Model.getChipsetSuffix(soc) ?: "min"
-        val fileUri = "xororz/sd-qnn/resolve/main/QteaMix_qnn2.28_${suffix}.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-        val needsUpgrade = Model.needsModelUpgrade(context, id, true)
-
-        return Model(
-            id = id,
-            name = "QteaMix",
-            description = context.getString(R.string.qteamix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.1GB",
-            isDownloaded = isDownloaded,
-            needsUpgrade = needsUpgrade,
-            defaultPrompt = "chibi, best quality, 1girl, solo, cute, pink hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            useCpuClip = true
-        )
-    }
-
-    private fun createQteaMixModelCPU(): Model {
-        val id = "qteamixcpu"
-        val fileUri = "xororz/sd-mnn/resolve/main/QteaMix.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-
-        return Model(
-            id = id,
-            name = "QteaMix",
-            description = context.getString(R.string.qteamix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.2GB",
-            isDownloaded = isDownloaded,
-            defaultPrompt = "chibi, best quality, 1girl, solo, cute, pink hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            runOnCpu = true
-        )
-    }
-
-    private fun createCuteYukiMixModel(): Model {
-        val id = "cuteyukimix"
-        val soc = getDeviceSoc()
-        val suffix = Model.getChipsetSuffix(soc) ?: "min"
-        val fileUri = "xororz/sd-qnn/resolve/main/CuteYukiMix_qnn2.28_${suffix}.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-        val needsUpgrade = Model.needsModelUpgrade(context, id, true)
-
-        return Model(
-            id = id,
-            name = "CuteYukiMix",
-            description = context.getString(R.string.cuteyukimix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.1GB",
-            isDownloaded = isDownloaded,
-            needsUpgrade = needsUpgrade,
-            defaultPrompt = "masterpiece, best quality, 1girl, solo, cute, white hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            useCpuClip = true
-        )
-    }
-
-    private fun createCuteYukiMixModelCPU(): Model {
-        val id = "cuteyukimixcpu"
-        val fileUri = "xororz/sd-mnn/resolve/main/CuteYukiMix.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-
-        return Model(
-            id = id,
-            name = "CuteYukiMix",
-            description = context.getString(R.string.cuteyukimix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.2GB",
-            isDownloaded = isDownloaded,
-            defaultPrompt = "masterpiece, best quality, 1girl, solo, cute, white hair,",
-            defaultNegativePrompt = "lowres, bad anatomy, bad hands, missing fingers, extra fingers, bad arms, missing legs, missing arms, poorly drawn face, bad face, fused face, cloned face, three crus, fused feet, fused thigh, extra crus, ugly fingers, horn, realistic photo, huge eyes, worst face, 2girl, long fingers, disconnected limbs,",
-            runOnCpu = true
-        )
-    }
-
-    private fun createAbsoluteRealityModel(): Model {
-        val id = "absolutereality"
-        val soc = getDeviceSoc()
-        val suffix = Model.getChipsetSuffix(soc) ?: "min"
-        val fileUri = "xororz/sd-qnn/resolve/main/AbsoluteReality_qnn2.28_${suffix}.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-        val needsUpgrade = Model.needsModelUpgrade(context, id, true)
-
-        return Model(
-            id = id,
-            name = "Absolute Reality",
-            description = context.getString(R.string.absolutereality_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.1GB",
-            isDownloaded = isDownloaded,
-            needsUpgrade = needsUpgrade,
-            defaultPrompt = "masterpiece, best quality, ultra-detailed, realistic, 8k, a cat on grass,",
-            defaultNegativePrompt = "worst quality, low quality, normal quality, poorly drawn, lowres, low resolution, signature, watermarks, ugly, out of focus, error, blurry, unclear photo, bad photo, unrealistic, semi realistic, pixelated, cartoon, anime, cgi, drawing, 2d, 3d, censored, duplicate,",
-            runOnCpu = false,
-            useCpuClip = true
-        )
-    }
-
-    private fun createAbsoluteRealityModelCPU(): Model {
-        val id = "absoluterealitycpu"
-        val fileUri = "xororz/sd-mnn/resolve/main/AbsoluteReality.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-
-        return Model(
-            id = id,
-            name = "Absolute Reality",
-            description = context.getString(R.string.absolutereality_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.2GB",
-            isDownloaded = isDownloaded,
-            defaultPrompt = "masterpiece, best quality, ultra-detailed, realistic, 8k, a cat on grass,",
-            defaultNegativePrompt = "worst quality, low quality, normal quality, poorly drawn, lowres, low resolution, signature, watermarks, ugly, out of focus, error, blurry, unclear photo, bad photo, unrealistic, semi realistic, pixelated, cartoon, anime, cgi, drawing, 2d, 3d, censored, duplicate,",
-            runOnCpu = true
-        )
-    }
-
-    private fun createChilloutMixModel(): Model {
-        val id = "chilloutmix"
-        val soc = getDeviceSoc()
-        val suffix = Model.getChipsetSuffix(soc) ?: "min"
-        val fileUri = "xororz/sd-qnn/resolve/main/ChilloutMix_qnn2.28_${suffix}.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-        val needsUpgrade = Model.needsModelUpgrade(context, id, true)
-
-        return Model(
-            id = id,
-            name = "ChilloutMix",
-            description = context.getString(R.string.chilloutmix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.1GB",
-            isDownloaded = isDownloaded,
-            needsUpgrade = needsUpgrade,
-            defaultPrompt = "RAW photo, best quality, realistic, photo-realistic, masterpiece, 1girl, upper body, facing front, portrait, white shirt",
-            defaultNegativePrompt = "paintings, cartoon, anime, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, skin spots, acnes, skin blemishes",
-            runOnCpu = false,
-            useCpuClip = true
-        )
-    }
-
-    private fun createChilloutMixModelCPU(): Model {
-        val id = "chilloutmixcpu"
-        val fileUri = "xororz/sd-mnn/resolve/main/ChilloutMix.zip"
-        val isDownloaded = Model.isModelDownloaded(context, id, false)
-
-        return Model(
-            id = id,
-            name = "ChilloutMix",
-            description = context.getString(R.string.chilloutmix_description),
-            baseUrl = baseUrl,
-            fileUri = fileUri,
-            approximateSize = "1.2GB",
-            isDownloaded = isDownloaded,
-            defaultPrompt = "RAW photo, best quality, realistic, photo-realistic, masterpiece, 1girl, upper body, facing front, portrait, white shirt",
-            defaultNegativePrompt = "paintings, cartoon, anime, lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, skin spots, acnes, skin blemishes",
-            runOnCpu = true
+            defaultPrompt = "a beautiful landscape with mountains and a lake, high quality, detailed"
         )
     }
 
@@ -619,15 +390,7 @@ class ModelRepository(private val context: Context) {
         models = models.map { model ->
             if (model.id == modelId) {
                 val isDownloaded = Model.isModelDownloaded(context, modelId, model.isCustom)
-                val needsUpgrade = if (!model.runOnCpu) {
-                    Model.needsModelUpgrade(context, modelId, true)
-                } else {
-                    false
-                }
-                model.copy(
-                    isDownloaded = isDownloaded,
-                    needsUpgrade = needsUpgrade
-                )
+                model.copy(isDownloaded = isDownloaded)
             } else {
                 model
             }

@@ -10,19 +10,15 @@ import io.github.xororz.localdream.data.Model
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
-import java.io.IOException
 import java.util.concurrent.TimeUnit
 import io.github.xororz.localdream.data.ModelRepository
-import io.github.xororz.localdream.BuildConfig
 
 class BackendService : Service() {
     private var process: Process? = null
-    private lateinit var runtimeDir: File
 
     companion object {
         private const val TAG = "BackendService"
         private const val EXECUTABLE_NAME = "libstable_diffusion_core.so"
-        private const val RUNTIME_DIR = "runtime_libs"
         private const val NOTIFICATION_ID = 2
         private const val CHANNEL_ID = "backend_service_channel"
 
@@ -50,7 +46,6 @@ class BackendService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        prepareRuntimeDir()
     }
 
     override fun onBind(intent: Intent): IBinder? = null
@@ -136,79 +131,6 @@ class BackendService : Service() {
             .build()
     }
 
-    private fun prepareRuntimeDir() {
-        try {
-            runtimeDir = File(filesDir, RUNTIME_DIR).apply {
-                if (!exists()) {
-                    mkdirs()
-                }
-            }
-
-            try {
-                val qnnlibsAssets = assets.list("qnnlibs")
-                qnnlibsAssets?.forEach { fileName ->
-                    val targetLib = File(runtimeDir, fileName)
-
-                    val needsCopy = !targetLib.exists() || run {
-                        val assetInputStream = assets.open("qnnlibs/$fileName")
-                        val assetSize = assetInputStream.use { it.available().toLong() }
-                        targetLib.length() != assetSize
-                    }
-
-                    if (needsCopy) {
-                        val assetInputStream = assets.open("qnnlibs/$fileName")
-                        assetInputStream.use { input ->
-                            targetLib.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        Log.d(TAG, "Copied $fileName from assets to runtime directory")
-                    }
-
-                    targetLib.setReadable(true, true)
-                    targetLib.setExecutable(true, true)
-                }
-                Log.i(TAG, "QNN libraries prepared in runtime directory")
-            } catch (e: IOException) {
-                Log.e(TAG, "Failed to prepare QNN libraries from assets", e)
-                throw RuntimeException("Failed to prepare QNN libraries from assets", e)
-            }
-
-            if (BuildConfig.FLAVOR == "filter") {
-                try {
-                    val safetyCheckerSource = assets.open("safety_checker.mnn")
-                    val safetyCheckerTarget = File(filesDir, "safety_checker.mnn")
-
-                    safetyCheckerSource.use { input ->
-                        safetyCheckerTarget.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-
-                    safetyCheckerTarget.setReadable(true, true)
-                    Log.i(
-                        TAG,
-                        "Safety checker model copied to: ${safetyCheckerTarget.absolutePath}"
-                    )
-                } catch (e: IOException) {
-                    Log.e(TAG, "copy safety_checker.mnn failed", e)
-                    throw RuntimeException("Failed to copy safety checker model", e)
-                }
-            }
-
-            runtimeDir.setReadable(true, true)
-            runtimeDir.setExecutable(true, true)
-
-            Log.i(TAG, "Runtime directory prepared: ${runtimeDir.absolutePath}")
-            Log.i(TAG, "Runtime files: ${runtimeDir.list()?.joinToString()}")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Prepare runtime dir failed", e)
-            updateState(BackendState.Error("Prepare runtime dir failed: ${e.message}"))
-            throw RuntimeException("Failed to prepare runtime directory", e)
-        }
-    }
-
     private fun startBackend(model: Model, width: Int, height: Int): Boolean {
         Log.i(TAG, "backend start, model: ${model.name}, resolution: ${width}×${height}")
         updateState(BackendState.Starting)
@@ -224,121 +146,38 @@ class BackendService : Service() {
                 return false
             }
 
-            val preferences = this.getSharedPreferences("app_prefs", MODE_PRIVATE)
-            val useImg2img = preferences.getBoolean("use_img2img", true)
-
-            var clipfilename = "clip.bin"
-            if (model.useCpuClip) {
-                clipfilename = "clip.mnn"
-            }
+            // ExecuTorch FLUX.2 pipeline: 3 .pte models + tokenizer + config
             var command = listOf(
                 executableFile.absolutePath,
-                "--clip", File(modelsDir, clipfilename).absolutePath,
-                "--unet", File(modelsDir, "unet.bin").absolutePath,
-                "--vae_decoder", File(modelsDir, "vae_decoder.bin").absolutePath,
-                "--tokenizer", File(modelsDir, "tokenizer.json").absolutePath,
-                "--backend", File(runtimeDir, "libQnnHtp.so").absolutePath,
-                "--system_library", File(runtimeDir, "libQnnSystem.so").absolutePath,
-                "--port", "8081",
-                "--text_embedding_size", model.textEmbeddingSize.toString()
+                "--encoder", File(modelsDir, "text_encoder.pte").absolutePath,
+                "--dit", File(modelsDir, "transformer.pte").absolutePath,
+                "--vae_decoder", File(modelsDir, "vae_decoder.pte").absolutePath,
+                "--tokenizer", File(modelsDir, "tokenizer/tokenizer.json").absolutePath,
+                "--config", File(modelsDir, "export_config.json").absolutePath,
+                "--bn_stats", File(modelsDir, "vae_bn_stats.json").absolutePath,
+                "--port", "8081"
             )
-            if (width != 512 || height != 512) {
-                val patchFile = if (width == height) {
-                    val squarePatch = File(modelsDir, "${width}.patch")
-                    if (squarePatch.exists()) {
-                        squarePatch
-                    } else {
-                        File(modelsDir, "${width}x${height}.patch")
-                    }
-                } else {
-                    File(modelsDir, "${width}x${height}.patch")
-                }
 
-                if (patchFile.exists()) {
-                    command = command + listOf(
-                        "--patch", patchFile.absolutePath,
-                    )
-                    Log.i(TAG, "Using patch file: ${patchFile.name}")
-                } else {
-                    Log.w(
-                        TAG,
-                        "Patch file not found: ${patchFile.absolutePath}, falling back to 512×512"
-                    )
-                }
-            }
-            if (useImg2img) {
+            // Optional img2img models
+            val vaeEncoderFile = File(modelsDir, "vae_encoder.pte")
+            val ditImg2imgFile = File(modelsDir, "transformer_img2img.pte")
+            if (vaeEncoderFile.exists() && ditImg2imgFile.exists()) {
                 command = command + listOf(
-                    "--vae_encoder", File(modelsDir, "vae_encoder.bin").absolutePath,
+                    "--vae_encoder", vaeEncoderFile.absolutePath,
+                    "--dit_img2img", ditImg2imgFile.absolutePath
                 )
+                Log.i(TAG, "img2img models found, enabling img2img support")
             }
-            if (model.id.startsWith("pony")) {
-                command += "--ponyv55"
-            }
-            if (model.useCpuClip) {
-                command += "--use_cpu_clip"
-            }
-            if (model.runOnCpu) {
-                command = listOf(
-                    executableFile.absolutePath,
-                    "--clip", File(modelsDir, "clip.mnn").absolutePath,
-                    "--unet", File(modelsDir, "unet.mnn").absolutePath,
-                    "--vae_decoder", File(modelsDir, "vae_decoder.mnn").absolutePath,
-                    "--tokenizer", File(modelsDir, "tokenizer.json").absolutePath,
-                    "--port", "8081",
-                    "--text_embedding_size", if (model.id != "sd21") "768" else "1024",
-                    "--cpu"
-                )
-                if (useImg2img) {
-                    command = command + listOf(
-                        "--vae_encoder", File(modelsDir, "vae_encoder.mnn").absolutePath,
-                    )
-                }
-            }
-            if (BuildConfig.FLAVOR == "filter") {
-                command = command + listOf(
-                    "--safety_checker",
-                    File(filesDir, "safety_checker.mnn").absolutePath
-                )
-            }
+
             val env = mutableMapOf<String, String>()
-
-            val systemLibPaths = mutableListOf(
-                runtimeDir.absolutePath,
+            env["LD_LIBRARY_PATH"] = listOf(
+                nativeDir,
                 "/system/lib64",
                 "/vendor/lib64",
-                "/vendor/lib64/egl",
-            )
-            try {
-                val maliSymlink = File("/system/vendor/lib64/egl/libGLES_mali.so")
-                if (maliSymlink.exists()) {
-                    val realPath = maliSymlink.canonicalPath
-                    val soc = realPath.split("/").getOrNull(realPath.split("/").size - 2)
-
-                    if (soc != null) {
-                        val socPaths = listOf(
-                            "/vendor/lib64/$soc",
-                            "/vendor/lib64/egl/$soc"
-                        )
-
-                        socPaths.forEach { path ->
-                            if (!systemLibPaths.contains(path)) {
-                                systemLibPaths.add(path)
-                                Log.d("LibPath", "Added SoC path: $path")
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w("LibPath", "Failed to resolve Mali paths: ${e.message}")
-            }
-            val systemLibPathsStr = systemLibPaths.joinToString(":")
-            env["LD_LIBRARY_PATH"] = systemLibPathsStr
-            env["DSP_LIBRARY_PATH"] = runtimeDir.absolutePath
+            ).joinToString(":")
 
             Log.d(TAG, "COMMAND: ${command.joinToString(" ")}")
-            Log.d(TAG, "DIR: ${runtimeDir}")
             Log.d(TAG, "LD_LIBRARY_PATH=${env["LD_LIBRARY_PATH"]}")
-            Log.d(TAG, "DSP_LIBRARY_PATH=${env["DSP_LIBRARY_PATH"]}")
 
             val processBuilder = ProcessBuilder(command).apply {
                 directory(File(nativeDir))

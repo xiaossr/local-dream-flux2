@@ -249,8 +249,7 @@ data class GenerationParameters(
     val height: Int,
     val runOnCpu: Boolean,
     val denoiseStrength: Float = 0.6f,
-    val useOpenCL: Boolean = false,
-    val scheduler: String = "dpm"
+    val scheduler: String = "euler"
 )
 
 @SuppressLint("DefaultLocale")
@@ -277,8 +276,6 @@ fun ModelRunScreen(
     val interactionSource = remember { MutableInteractionSource() }
 
     var showResetConfirmDialog by remember { mutableStateOf(false) }
-    var showOpenCLWarningDialog by remember { mutableStateOf(false) }
-
     var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var intermediateBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var imageVersion by remember { mutableStateOf(0) }
@@ -301,27 +298,26 @@ fun ModelRunScreen(
     var generationParamsTmp by remember {
         mutableStateOf(
             GenerationParameters(
-                steps = 0,
-                cfg = 0f,
+                steps = 4,
+                cfg = 1f,
                 seed = 0,
                 prompt = "",
                 negativePrompt = "",
                 generationTime = "",
-                width = if (model?.runOnCpu == true) 256 else 512,
-                height = if (model?.runOnCpu == true) 256 else 512,
-                runOnCpu = model?.runOnCpu ?: false
+                width = 512,
+                height = 512,
+                runOnCpu = model?.runOnCpu ?: true
             )
         )
     }
     var prompt by remember { mutableStateOf("") }
     var negativePrompt by remember { mutableStateOf("") }
-    var cfg by remember { mutableStateOf(7f) }
-    var steps by remember { mutableStateOf(20f) }
+    var cfg by remember { mutableStateOf(1f) }
+    var steps by remember { mutableStateOf(4f) }
     var seed by remember { mutableStateOf("") }
     var denoiseStrength by remember { mutableStateOf(0.6f) }
-    var useOpenCL by remember { mutableStateOf(false) }
     var batchCounts by remember { mutableStateOf(1) }
-    var scheduler by remember { mutableStateOf("dpm") }
+    var scheduler by remember { mutableStateOf("euler") }
     var currentBatchIndex by remember { mutableStateOf(0) }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var base64EncodeDone by remember { mutableStateOf(false) }
@@ -337,8 +333,8 @@ fun ModelRunScreen(
     var hasInitialized by remember { mutableStateOf(false) }
     var showReportDialog by remember { mutableStateOf(false) }
 
-    var currentWidth by remember { mutableStateOf(if (model?.runOnCpu == true) 256 else 512) }
-    var currentHeight by remember { mutableStateOf(if (model?.runOnCpu == true) 256 else 512) }
+    var currentWidth by remember { mutableStateOf(model?.generationSize ?: 512) }
+    var currentHeight by remember { mutableStateOf(model?.generationSize ?: 512) }
     var availableResolutions by remember { mutableStateOf<List<Resolution>>(emptyList()) }
     var showResolutionChangeDialog by remember { mutableStateOf(false) }
     var pendingResolution by remember { mutableStateOf<Resolution?>(null) }
@@ -393,15 +389,12 @@ fun ModelRunScreen(
                 width = currentWidth,
                 height = currentHeight,
                 denoiseStrength = denoiseStrength,
-                useOpenCL = useOpenCL,
                 batchCounts = batchCounts,
                 scheduler = scheduler
             )
         }
     }
 
-    val onStepsChange = remember { { value: Float -> steps = value; saveAllFields() } }
-    val onCfgChange = remember { { value: Float -> cfg = value; saveAllFields() } }
     val onSizeChange = remember {
         { value: Float ->
             val rounded = (value / 64).roundToInt() * 64
@@ -637,15 +630,14 @@ fun ModelRunScreen(
         navController.navigateUp()
     }
 
-    LaunchedEffect(modelId, model?.runOnCpu) {
-        if (model?.runOnCpu == false) {
-            val baseResolution = Resolution(512, 512)
-            val patchResolutions = PatchScanner.scanAvailableResolutions(context, modelId)
+    LaunchedEffect(modelId) {
+        // FLUX.2 models use fixed resolution from export_config.json
+        val baseResolution = Resolution(model?.generationSize ?: 512, model?.generationSize ?: 512)
+        val patchResolutions = PatchScanner.scanAvailableResolutions(context, modelId)
 
-            val allResolutions =
-                (listOf(baseResolution) + patchResolutions).distinctBy { "${it.width}x${it.height}" }
-            availableResolutions = allResolutions
-        }
+        val allResolutions =
+            (listOf(baseResolution) + patchResolutions).distinctBy { "${it.width}x${it.height}" }
+        availableResolutions = allResolutions
     }
 
     LaunchedEffect(modelId) {
@@ -657,9 +649,8 @@ fun ModelRunScreen(
                     if (m.defaultPrompt.isNotEmpty()) {
                         prompt = m.defaultPrompt
                     }
-                    if (m.defaultNegativePrompt.isNotEmpty()) {
-                        negativePrompt = m.defaultNegativePrompt
-                    }
+                    // FLUX.2 doesn't use negative prompts
+                    negativePrompt = ""
                     saveAllFields()
                 }
             } else {
@@ -671,14 +662,13 @@ fun ModelRunScreen(
             cfg = prefs.cfg
             seed = prefs.seed
             denoiseStrength = prefs.denoiseStrength
-            useOpenCL = prefs.useOpenCL
             batchCounts = prefs.batchCounts
             scheduler = prefs.scheduler
 
             currentWidth =
-                if (prefs.width == -1) (if (model?.runOnCpu == true) 256 else 512) else prefs.width
+                if (prefs.width == -1) (model?.generationSize ?: 512) else prefs.width
             currentHeight =
-                if (prefs.height == -1) (if (model?.runOnCpu == true) 256 else 512) else prefs.height
+                if (prefs.height == -1) (model?.generationSize ?: 512) else prefs.height
 
             hasInitialized = true
         }
@@ -690,7 +680,6 @@ fun ModelRunScreen(
                 putExtra("modelId", model?.id)
                 putExtra("width", currentWidth)
                 putExtra("height", currentHeight)
-                putExtra("use_opencl", useOpenCL)
             }
             context.startForegroundService(intent)
         }
@@ -780,10 +769,10 @@ fun ModelRunScreen(
                         prompt = generationParamsTmp.prompt,
                         negativePrompt = generationParamsTmp.negativePrompt,
                         generationTime = genTime,
-                        width = if (model?.runOnCpu == true) generationParamsTmp.width else currentWidth,
-                        height = if (model?.runOnCpu == true) generationParamsTmp.height else currentHeight,
-                        runOnCpu = model?.runOnCpu ?: false,
-                        useOpenCL = generationParamsTmp.useOpenCL,
+                        width = currentWidth,
+                        height = currentHeight,
+                        runOnCpu = model?.runOnCpu ?: true,
+                        denoiseStrength = generationParamsTmp.denoiseStrength,
                         scheduler = generationParamsTmp.scheduler
                     )
 
@@ -873,29 +862,7 @@ fun ModelRunScreen(
             }
         )
     }
-    if (showOpenCLWarningDialog) {
-        AlertDialog(
-            onDismissRequest = { showOpenCLWarningDialog = false },
-            title = { Text("GPU Runtime Warning") },
-            text = { Text(stringResource(R.string.opencl_warning)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showOpenCLWarningDialog = false
-                        useOpenCL = true
-                        saveAllFields()
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showOpenCLWarningDialog = false }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
+
 
     if (showResolutionChangeDialog && pendingResolution != null) {
         AlertDialog(
@@ -977,28 +944,27 @@ fun ModelRunScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        steps = 20f
-                        cfg = 7f
+                        steps = 4f
+                        cfg = 1f
                         seed = ""
                         batchCounts = 1
-                        scheduler = "dpm"
+                        scheduler = "euler"
                         prompt = model?.defaultPrompt ?: ""
-                        negativePrompt = model?.defaultNegativePrompt ?: ""
+                        negativePrompt = ""
                         denoiseStrength = 0.6f
                         scope.launch(Dispatchers.IO) {
                             generationPreferences.saveAllFields(
                                 modelId = modelId,
                                 prompt = model?.defaultPrompt ?: "",
-                                negativePrompt = model?.defaultNegativePrompt ?: "",
-                                steps = 20f,
-                                cfg = 7f,
+                                negativePrompt = "",
+                                steps = 4f,
+                                cfg = 1f,
                                 seed = "",
-                                width = if (model?.runOnCpu == true) 256 else 512,
-                                height = if (model?.runOnCpu == true) 256 else 512,
+                                width = model?.generationSize ?: 512,
+                                height = model?.generationSize ?: 512,
                                 denoiseStrength = 0.6f,
-                                useOpenCL = useOpenCL,
                                 batchCounts = 1,
-                                scheduler = "dpm"
+                                scheduler = "euler"
                             )
                         }
                         showResetConfirmDialog = false
@@ -1134,7 +1100,7 @@ fun ModelRunScreen(
                                                 .verticalScroll(rememberScrollState())
                                                 .padding(vertical = 4.dp)
                                         ) {
-                                            if (model?.runOnCpu == false && availableResolutions.isNotEmpty()) {
+                                            if (availableResolutions.isNotEmpty()) {
                                                 Column(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     // verticalArrangement = Arrangement.spacedBy(
@@ -1178,129 +1144,6 @@ fun ModelRunScreen(
                                                 }
                                             }
 
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                // verticalArrangement = Arrangement.spacedBy(4.dp)
-                                            ) {
-                                                Text(
-                                                    stringResource(R.string.scheduler),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .horizontalScroll(rememberScrollState()),
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    FilterChip(
-                                                        selected = scheduler == "dpm",
-                                                        onClick = {
-                                                            scheduler = "dpm"
-                                                            saveAllFields()
-                                                        },
-                                                        label = { Text("DPM++ 2M") }
-                                                    )
-                                                    FilterChip(
-                                                        selected = scheduler == "euler_a",
-                                                        onClick = {
-                                                            scheduler = "euler_a"
-                                                            saveAllFields()
-                                                        },
-                                                        label = { Text("Euler A") }
-                                                    )
-                                                }
-                                            }
-
-                                            Column {
-                                                Text(
-                                                    stringResource(
-                                                        R.string.steps,
-                                                        steps.roundToInt()
-                                                    ),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = steps,
-                                                    onValueChange = onStepsChange,
-                                                    valueRange = 1f..50f,
-                                                    steps = 48,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-
-                                            Column {
-                                                Text(
-                                                    "CFG Scale: %.1f".format(cfg),
-                                                    style = MaterialTheme.typography.bodyMedium
-                                                )
-                                                Slider(
-                                                    value = cfg,
-                                                    onValueChange = onCfgChange,
-                                                    valueRange = 1f..30f,
-                                                    steps = 57,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                            }
-                                            if (model?.runOnCpu ?: false) {
-                                                Column {
-                                                    Text(
-                                                        stringResource(
-                                                            R.string.image_size,
-                                                            currentWidth,
-                                                            currentHeight
-                                                        ),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Slider(
-                                                        value = currentWidth.toFloat(),
-                                                        onValueChange = onSizeChange,
-                                                        valueRange = 128f..512f,
-                                                        steps = 5,
-                                                        modifier = Modifier.fillMaxWidth()
-                                                    )
-                                                }
-                                            }
-                                            if (model?.runOnCpu ?: false) {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(
-                                                        8.dp
-                                                    )
-                                                ) {
-                                                    Text(
-                                                        "Runtime",
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    FilterChip(
-                                                        selected = !useOpenCL,
-                                                        onClick = {
-                                                            useOpenCL = false
-                                                            saveAllFields()
-                                                        },
-                                                        label = { Text("CPU") },
-                                                        modifier = Modifier.weight(
-                                                            1f
-                                                        )
-                                                    )
-                                                    FilterChip(
-                                                        selected = useOpenCL,
-                                                        onClick = {
-                                                            if (!useOpenCL) {
-                                                                showOpenCLWarningDialog =
-                                                                    true
-                                                            } else {
-                                                                useOpenCL = false
-                                                                saveAllFields()
-                                                            }
-                                                        },
-                                                        label = { Text("GPU") },
-                                                        modifier = Modifier.weight(
-                                                            1f
-                                                        )
-                                                    )
-                                                }
-                                            }
                                             Column {
                                                 Text(
                                                     stringResource(
@@ -1432,12 +1275,6 @@ fun ModelRunScreen(
                         }
 
                         var expandedPrompt by remember { mutableStateOf(false) }
-                        var expandedNegativePrompt by remember {
-                            mutableStateOf(
-                                false
-                            )
-                        }
-
                         OutlinedTextField(
                             value = prompt,
                             onValueChange = onPromptChange,
@@ -1468,36 +1305,6 @@ fun ModelRunScreen(
                             }
                         )
 
-                        OutlinedTextField(
-                            value = negativePrompt,
-                            onValueChange = onNegativePromptChange,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(
-                                    interactionSource = interactionSource,
-                                    indication = null
-                                ) { },
-                            label = { Text(stringResource(R.string.negative_prompt)) },
-                            maxLines = if (expandedNegativePrompt) Int.MAX_VALUE else 2,
-                            minLines = if (expandedNegativePrompt) 3 else 2,
-                            shape = MaterialTheme.shapes.medium,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                            ),
-                            trailingIcon = {
-                                IconButton(onClick = {
-                                    expandedNegativePrompt = !expandedNegativePrompt
-                                }) {
-                                    Icon(
-                                        if (expandedNegativePrompt) Icons.Default.KeyboardArrowUp
-                                        else Icons.Default.KeyboardArrowDown,
-                                        contentDescription = if (expandedNegativePrompt) "collapse" else "expand"
-                                    )
-                                }
-                            }
-                        )
-
                         Button(
                             onClick = {
                                 focusManager.clearFocus()
@@ -1514,9 +1321,8 @@ fun ModelRunScreen(
                                     generationTime = "",
                                     width = currentWidth,
                                     height = currentHeight,
-                                    runOnCpu = model?.runOnCpu ?: false,
+                                    runOnCpu = model?.runOnCpu ?: true,
                                     denoiseStrength = denoiseStrength,
-                                    useOpenCL = useOpenCL,
                                     scheduler = scheduler
                                 )
 
@@ -1548,9 +1354,8 @@ fun ModelRunScreen(
                                             generationTime = "",
                                             width = currentWidth,
                                             height = currentHeight,
-                                            runOnCpu = model?.runOnCpu ?: false,
+                                            runOnCpu = model?.runOnCpu ?: true,
                                             denoiseStrength = denoiseStrength,
-                                            useOpenCL = useOpenCL,
                                             scheduler = scheduler
                                         )
 
@@ -1573,7 +1378,6 @@ fun ModelRunScreen(
                                                 "denoise_strength",
                                                 denoiseStrength
                                             )
-                                            putExtra("use_opencl", useOpenCL)
                                             putExtra("scheduler", scheduler)
                                             putExtra("batch_index", i)
                                             if (selectedImageUri != null && base64EncodeDone) {
@@ -1997,8 +1801,8 @@ fun ModelRunScreen(
                                             }
                                         }
 
-                                        // Upscaler button - only show for NPU runtime and resolution <= 1024
-                                        if (!model?.runOnCpu!! && generationParams?.let {
+                                        // Upscaler button - show when resolution <= 1024
+                                        if (generationParams?.let {
                                                 maxOf(
                                                     it.width,
                                                     it.height
@@ -2195,9 +1999,7 @@ fun ModelRunScreen(
                                                 params.height,
                                                 params.generationTime
                                                     ?: "unknown",
-                                                if (params.runOnCpu) {
-                                                    if (params.useOpenCL) "GPU" else "CPU"
-                                                } else "NPU"
+                                                if (params.runOnCpu) "CPU" else "NPU"
                                             ),
                                             style = MaterialTheme.typography.bodySmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
@@ -2287,17 +2089,6 @@ fun ModelRunScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     stringResource(
-                                        R.string.basic_step,
-                                        generationParams?.steps ?: 0
-                                    ),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    "CFG: %.1f".format(generationParams?.cfg),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    stringResource(
                                         R.string.basic_size,
                                         generationParams?.width ?: 0,
                                         generationParams?.height ?: 0
@@ -2313,20 +2104,8 @@ fun ModelRunScreen(
                                 Text(
                                     stringResource(
                                         R.string.basic_runtime,
-                                        if (generationParams?.runOnCpu == true) {
-                                            if (generationParams?.useOpenCL == true) "GPU" else "CPU"
-                                        } else "NPU"
+                                        if (generationParams?.runOnCpu == true) "CPU" else "NPU"
                                     ),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Text(
-                                    "${stringResource(R.string.scheduler)}: ${
-                                        when (generationParams?.scheduler) {
-                                            "dpm" -> "DPM++ 2M"
-                                            "euler_a" -> "Euler A"
-                                            else -> generationParams?.scheduler ?: "DPM++ 2M"
-                                        }
-                                    }",
                                     style = MaterialTheme.typography.bodyMedium
                                 )
                                 Text(
@@ -3072,7 +2851,6 @@ fun ModelRunScreen(
                                                     "denoiseStrength",
                                                     updatedParams.denoiseStrength
                                                 )
-                                                put("useOpenCL", updatedParams.useOpenCL)
                                                 put("timestamp", timestamp)
                                             }
                                             jsonFile.writeText(jsonObject.toString())
@@ -3403,14 +3181,6 @@ fun ModelRunScreen(
                     ) {
                         Column {
                             Text(
-                                "Steps: ${params.steps}",
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "CFG: %.1f".format(params.cfg),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
                                 stringResource(
                                     R.string.basic_size,
                                     params.width,
@@ -3427,20 +3197,8 @@ fun ModelRunScreen(
                             Text(
                                 stringResource(
                                     R.string.basic_runtime,
-                                    if (params.runOnCpu) {
-                                        if (params.useOpenCL) "GPU" else "CPU"
-                                    } else "NPU"
+                                    if (params.runOnCpu) "CPU" else "NPU"
                                 ),
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                            Text(
-                                "${stringResource(R.string.scheduler)}: ${
-                                    when (params.scheduler) {
-                                        "dpm" -> "DPM++ 2M"
-                                        "euler_a" -> "Euler A"
-                                        else -> params.scheduler
-                                    }
-                                }",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Text(

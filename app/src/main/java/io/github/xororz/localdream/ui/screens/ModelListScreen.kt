@@ -31,7 +31,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -46,46 +45,15 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.text.style.TextDecoration
 import io.github.xororz.localdream.R
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.automirrored.filled.Help
-import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.draw.clip
 import androidx.core.content.edit
 import java.io.File
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import android.net.Uri
-import android.provider.OpenableColumns
-import android.util.Log
 import androidx.compose.foundation.clickable
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Folder
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Dispatchers
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.documentfile.provider.DocumentFile
-import java.util.zip.ZipInputStream
-import java.io.BufferedOutputStream
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.core.net.toUri
-
-data class LoRAFile(
-    val uri: Uri,
-    val weight: Float = 1.0f
-)
-
-private fun getCleanFileName(uri: Uri): String {
-    val fileName = uri.lastPathSegment ?: "Unknown file"
-    return if (fileName.startsWith("primary:")) {
-        fileName.removePrefix("primary:")
-    } else {
-        fileName
-    }
-}
 
 @Composable
 private fun DeleteConfirmDialog(
@@ -115,7 +83,7 @@ private fun DeleteConfirmDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelListScreen(
     navController: NavController,
@@ -129,7 +97,6 @@ fun ModelListScreen(
     var downloadError by remember { mutableStateOf<String?>(null) }
     var showDownloadConfirm by remember { mutableStateOf<Model?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-    var showUpgradeConfirm by remember { mutableStateOf<Model?>(null) }
 
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedModels by remember { mutableStateOf(setOf<Model>()) }
@@ -140,11 +107,6 @@ fun ModelListScreen(
 
     var showSettingsDialog by remember { mutableStateOf(false) }
     var showFileManagerDialog by remember { mutableStateOf(false) }
-    var showEmbeddingManagerDialog by remember { mutableStateOf(false) }
-    var showCustomModelDialog by remember { mutableStateOf(false) }
-    var showCustomNpuModelDialog by remember { mutableStateOf(false) }
-    var isConverting by remember { mutableStateOf(false) }
-    var conversionProgress by remember { mutableStateOf("") }
     var tempBaseUrl by remember { mutableStateOf("") }
     var selectedSource by remember { mutableStateOf("huggingface") }
     val generationPreferences = remember { GenerationPreferences(context) }
@@ -220,32 +182,9 @@ fun ModelListScreen(
         }
     }
 
-    val cpuModels = remember(modelRepository.models) {
-        modelRepository.models.filter { it.runOnCpu }
+    val allModels = remember(modelRepository.models) {
+        modelRepository.models
     }
-    val npuModels = remember(modelRepository.models) {
-        modelRepository.models.filter { !it.runOnCpu }
-    }
-
-    val lastViewedPage = remember {
-        val preferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        preferences.getInt("last_viewed_page", 0)
-    }
-
-    val pagerState = rememberPagerState(
-        initialPage = lastViewedPage,
-        pageCount = { 2 }
-    )
-
-    LaunchedEffect(pagerState.currentPage) {
-        val preferences = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        preferences.edit() { putInt("last_viewed_page", pagerState.currentPage) }
-    }
-
-    val tabTitles = listOf(
-        stringResource(R.string.cpu_models),
-        stringResource(R.string.npu_models)
-    )
 
     BackHandler(enabled = isSelectionMode || showSettingsDialog) {
         when {
@@ -356,107 +295,6 @@ fun ModelListScreen(
         )
     }
 
-    if (showEmbeddingManagerDialog) {
-        EmbeddingManagerDialog(
-            context = context,
-            onDismiss = { showEmbeddingManagerDialog = false },
-            onEmbeddingDeleted = {
-                scope.launch {
-                    snackbarHostState.showSnackbar(context.getString(R.string.embedding_deleted))
-                }
-            },
-            onEmbeddingImported = {
-                scope.launch {
-                    snackbarHostState.showSnackbar(context.getString(R.string.embedding_imported))
-                }
-            }
-        )
-    }
-
-    if (showCustomModelDialog) {
-        CustomModelDialog(
-            context,
-            onDismiss = { showCustomModelDialog = false },
-            onModelAdded = { modelName, fileUri, clipSkip, loraFiles ->
-                showCustomModelDialog = false
-                scope.launch {
-                    convertCustomModel(
-                        context = context,
-                        modelName = modelName,
-                        fileUri = fileUri,
-                        clipSkip = clipSkip,
-                        loraFiles = loraFiles,
-                        onProgress = { progress ->
-                            conversionProgress = progress
-                        },
-                        onStart = {
-                            isConverting = true
-                        },
-                        onSuccess = {
-                            isConverting = false
-                            modelRepository.refreshAllModels()
-                            scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.model_conversion_success))
-                            }
-                        },
-                        onError = { error ->
-                            isConverting = false
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    context.getString(
-                                        R.string.model_conversion_failed,
-                                        error
-                                    )
-                                )
-                            }
-                        }
-                    )
-                }
-            }
-        )
-    }
-
-    if (showCustomNpuModelDialog) {
-        CustomNpuModelDialog(
-            context,
-            onDismiss = { showCustomNpuModelDialog = false },
-            onModelAdded = { modelName, zipUri ->
-                showCustomNpuModelDialog = false
-                scope.launch {
-                    extractNpuModel(
-                        context = context,
-                        modelName = modelName,
-                        zipUri = zipUri,
-                        onProgress = { progress ->
-                            conversionProgress = progress
-                        },
-                        onStart = {
-                            isConverting = true
-                        },
-                        onSuccess = {
-                            isConverting = false
-                            modelRepository.refreshAllModels()
-                            scope.launch {
-                                snackbarHostState.showSnackbar(context.getString(R.string.npu_model_added_success))
-                            }
-                        },
-                        onError = { error ->
-                            isConverting = false
-                            scope.launch {
-                                snackbarHostState.showSnackbar(
-                                    context.getString(
-                                        R.string.npu_model_add_failed,
-                                        error
-                                    )
-                                )
-                            }
-                        }
-                    )
-                }
-            }
-        )
-    }
-
     if (showDeleteConfirm && selectedModels.isNotEmpty()) {
         DeleteConfirmDialog(
             selectedCount = selectedModels.size,
@@ -528,33 +366,6 @@ fun ModelListScreen(
         }
     }
 
-    showUpgradeConfirm?.let { model ->
-        AlertDialog(
-            onDismissRequest = { showUpgradeConfirm = null },
-            title = { Text(stringResource(R.string.upgrade_model)) },
-            text = {
-                Text(stringResource(R.string.upgrade_model_hint, model.name))
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showUpgradeConfirm = null
-                        downloadingModel = model
-                        currentProgress = null
-                        model.startDownload(context)
-                    }
-                ) {
-                    Text(stringResource(R.string.confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpgradeConfirm = null }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-
     Scaffold(
         topBar = {
             LargeTopAppBar(
@@ -604,156 +415,73 @@ fun ModelListScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                top = 8.dp,
+                start = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            TabRow(
-                selectedTabIndex = pagerState.currentPage,
-                indicator = { tabPositions ->
-                    SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                tabTitles.forEachIndexed { index, title ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = {
-                            scope.launch {
-                                pagerState.animateScrollToPage(index)
+            items(
+                items = allModels,
+                key = { model -> "${model.id}_${version}" }
+            ) { model ->
+                ModelCard(
+                    model = model,
+                    isSelected = selectedModels.contains(model),
+                    isSelectionMode = isSelectionMode,
+                    onClick = {
+                        if (isSelectionMode) {
+                            if (model.isDownloaded) {
+                                selectedModels = if (selectedModels.contains(model)) {
+                                    selectedModels - model
+                                } else {
+                                    selectedModels + model
+                                }
+
+                                if (selectedModels.isEmpty()) {
+                                    isSelectionMode = false
+                                }
                             }
-                        },
-                        text = {
-                            Text(
-                                text = title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Normal
-                            )
+                        } else {
+                            if (!model.isDownloaded) {
+                                showDownloadConfirm = model
+                            } else {
+                                navController.navigate(Screen.ModelRun.createRoute(model.id))
+                            }
                         }
-                    )
-                }
+                    },
+                    onLongClick = {
+                        if (model.isDownloaded && !isSelectionMode) {
+                            isSelectionMode = true
+                            selectedModels = setOf(model)
+                        }
+                    }
+                )
             }
 
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.weight(1f)
-            ) { page ->
-                val models = if (page == 0) cpuModels else npuModels
-
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        top = 8.dp,
-                        start = 16.dp,
-                        end = 16.dp,
-                        bottom = 16.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    if (page == 0) {
-                        item {
-                            AddCustomModelButton(
-                                onClick = { showCustomModelDialog = true },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    if (page == 1 && Model.isQualcommDevice()) {
-                        item {
-                            AddCustomNpuModelButton(
-                                onClick = { showCustomNpuModelDialog = true },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-
-                    items(
-                        items = models,
-                        key = { model -> "${model.id}_${version}" }
-                    ) { model ->
-                        ModelCard(
-                            model = model,
-                            isSelected = selectedModels.contains(model),
-                            isSelectionMode = isSelectionMode,
-                            onClick = {
-                                if (!Model.isDeviceSupported() && !model.runOnCpu) {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(context.getString(R.string.unsupport_npu))
-                                    }
-                                    return@ModelCard
-                                }
-                                if (isSelectionMode) {
-                                    if (model.isDownloaded) {
-                                        selectedModels = if (selectedModels.contains(model)) {
-                                            selectedModels - model
-                                        } else {
-                                            selectedModels + model
-                                        }
-
-                                        if (selectedModels.isEmpty()) {
-                                            isSelectionMode = false
-                                        }
-                                    }
-                                } else {
-                                    if (!model.isDownloaded) {
-                                        showDownloadConfirm = model
-                                    } else {
-                                        navController.navigate(Screen.ModelRun.createRoute(model.id))
-                                    }
-                                }
-                            },
-                            onLongClick = {
-                                if (model.isDownloaded && !isSelectionMode) {
-                                    isSelectionMode = true
-                                    selectedModels = setOf(model)
-                                }
-                            },
-                            onUpdateClick = {
-                                showUpgradeConfirm = model
-                            }
+            if (allModels.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stringResource(R.string.no_cpu_models),
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
                     }
-
-                    if (models.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (page == 0)
-                                        stringResource(R.string.no_cpu_models)
-                                    else
-                                        stringResource(R.string.no_npu_models),
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textAlign = TextAlign.Center,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-                    }
                 }
-            }
-
-            Row(
-                modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                TabPageIndicator(
-                    pageCount = 2,
-                    currentPage = pagerState.currentPage,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
             }
         }
     }
@@ -1090,42 +818,6 @@ fun ModelListScreen(
                             }
                         }
                     }
-                    // Embedding management section
-                    item {
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Description,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Text(
-                                    stringResource(R.string.embedding_management),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    showEmbeddingManagerDialog = true
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Description,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(end = 8.dp)
-                                )
-                                Text(stringResource(R.string.embedding_manager))
-                            }
-                        }
-                    }
-
                     // File management section
                     item {
                         Column {
@@ -1165,33 +857,6 @@ fun ModelListScreen(
 
                     }
                 }
-            }
-        }
-    }
-
-    if (isConverting) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator()
-                Text(
-                    text = if (conversionProgress.isNotEmpty()) conversionProgress else stringResource(
-                        R.string.converting
-                    ),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
             }
         }
     }
@@ -1281,32 +946,6 @@ private fun formatBytes(bytes: Long): String {
     }
 }
 
-@Composable
-fun TabPageIndicator(
-    pageCount: Int,
-    currentPage: Int,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier
-    ) {
-        repeat(pageCount) { index ->
-            Box(
-                modifier = Modifier
-                    .size(if (currentPage == index) 10.dp else 8.dp)
-                    .background(
-                        color = if (currentPage == index)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                        shape = CircleShape
-                    )
-            )
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModelCard(
@@ -1315,7 +954,6 @@ fun ModelCard(
     isSelectionMode: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onUpdateClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val elevation by animateFloatAsState(
@@ -1378,19 +1016,13 @@ fun ModelCard(
                     .align(Alignment.TopEnd)
                     .padding(8.dp),
                 shape = RoundedCornerShape(4.dp),
-                color = if (model.runOnCpu)
-                    MaterialTheme.colorScheme.tertiaryContainer
-                else
-                    MaterialTheme.colorScheme.primaryContainer
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
-                    text = if (model.runOnCpu) "CPU" else "NPU",
+                    text = "ExecuTorch",
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (model.runOnCpu)
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                    else
-                        MaterialTheme.colorScheme.onPrimaryContainer,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -1453,7 +1085,7 @@ fun ModelCard(
                                 modifier = Modifier.size(16.dp)
                             )
                             Text(
-                                text = if (model.runOnCpu) "128~512" else "${model.generationSize}×${model.generationSize}",
+                                text = "128~512",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = contentColor.copy(alpha = 0.7f)
                             )
@@ -1476,41 +1108,12 @@ fun ModelCard(
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(16.dp)
                                     )
-                                    if (!model.needsUpgrade or isSelectionMode) {
-                                        Text(
-                                            text = stringResource(R.string.downloaded),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-                                }
-
-                                if (model.needsUpgrade && !isSelectionMode) {
-                                    FilledTonalButton(
-                                        onClick = onUpdateClick,
-                                        modifier = Modifier.height(28.dp),
-                                        colors = ButtonDefaults.filledTonalButtonColors(
-                                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                                        ),
-                                        contentPadding = PaddingValues(
-                                            horizontal = 12.dp,
-                                            vertical = 4.dp
-                                        )
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Update,
-                                            contentDescription = "update",
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = stringResource(R.string.update),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
+                                    Text(
+                                        text = stringResource(R.string.downloaded),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
                                 }
                             }
                         }
@@ -1836,1043 +1439,4 @@ private fun FileManagerDialog(
             }
         }
     )
-}
-
-@Composable
-fun AddCustomModelButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onClick() }
-                )
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ),
-        shape = RoundedCornerShape(20.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.add_custom_model),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-fun AddCustomNpuModelButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTapGestures(
-                    onTap = { onClick() }
-                )
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-        ),
-        shape = RoundedCornerShape(20.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.add_custom_npu_model),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                fontWeight = FontWeight.Medium
-            )
-        }
-    }
-}
-
-@Composable
-fun CustomNpuModelDialog(
-    context: Context,
-    onDismiss: () -> Unit,
-    onModelAdded: (String, Uri) -> Unit
-) {
-    var modelName by remember { mutableStateOf("") }
-    var selectedZipUri by remember { mutableStateOf<Uri?>(null) }
-
-    val zipPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            selectedZipUri = it
-            if (modelName.isBlank()) {
-                getFileNameFromUri(context, it)?.let { fileName ->
-                    modelName = fileName.substringBeforeLast(".")
-                }
-            }
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = stringResource(R.string.add_custom_npu_model),
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.custom_npu_model_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    label = { Text(stringResource(R.string.custom_model_name)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.custom_model_name_hint)) }
-                )
-
-                OutlinedButton(
-                    onClick = {
-                        zipPickerLauncher.launch("application/zip")
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = selectedZipUri?.let { stringResource(R.string.zip_file_selected) }
-                            ?: stringResource(R.string.select_zip_file)
-                    )
-                }
-
-                selectedZipUri?.let { uri ->
-                    Text(
-                        text = "Selected: ${getCleanFileName(uri)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (modelName.isNotBlank() && selectedZipUri != null) {
-                        onModelAdded(modelName, selectedZipUri!!)
-                    }
-                },
-                enabled = modelName.isNotBlank() && selectedZipUri != null
-            ) {
-                Text(stringResource(R.string.add_model))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-@Composable
-fun CustomModelDialog(
-    context: Context,
-    onDismiss: () -> Unit,
-    onModelAdded: (String, Uri, Int, List<LoRAFile>) -> Unit
-) {
-    var modelName by remember { mutableStateOf("") }
-    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
-    var clipSkip by remember { mutableStateOf(1) }
-    var selectedLoraFiles by remember { mutableStateOf<List<LoRAFile>>(emptyList()) }
-
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            selectedFileUri = it
-            if (modelName.isBlank()) {
-                getFileNameFromUri(context, it)?.let { fileName ->
-                    modelName = fileName.substringBeforeLast(".")
-                }
-            }
-        }
-    }
-
-    val loraPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            selectedLoraFiles = selectedLoraFiles + LoRAFile(it)
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = stringResource(R.string.add_custom_model),
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.custom_model_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                OutlinedTextField(
-                    value = modelName,
-                    onValueChange = { modelName = it },
-                    label = { Text(stringResource(R.string.custom_model_name)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.custom_model_name_hint)) }
-                )
-
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilterChip(
-                            selected = clipSkip == 1,
-                            onClick = { clipSkip = 1 },
-                            label = { Text("Clip Skip 1") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = clipSkip == 2,
-                            onClick = { clipSkip = 2 },
-                            label = { Text("Clip Skip 2") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    Text(
-                        text = stringResource(R.string.clip_skip_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = {
-                        filePickerLauncher.launch("application/octet-stream")
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = selectedFileUri?.let { stringResource(R.string.file_selected) }
-                            ?: stringResource(R.string.select_model_file)
-                    )
-                }
-
-                selectedFileUri?.let { uri ->
-                    Text(
-                        text = "Selected: ${getCleanFileName(uri)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                    )
-                }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = stringResource(R.string.lora_files_optional),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-
-                    OutlinedButton(
-                        onClick = {
-                            loraPickerLauncher.launch("application/octet-stream")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(stringResource(R.string.add_lora_file))
-                    }
-
-                    if (selectedLoraFiles.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = stringResource(R.string.selected_lora_files),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        selectedLoraFiles.forEachIndexed { index, loraFile ->
-                            key(loraFile.uri.toString()) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "${index + 1}. ${getCleanFileName(loraFile.uri)}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                                            modifier = Modifier.weight(1f)
-                                        )
-
-                                        IconButton(
-                                            onClick = {
-                                                selectedLoraFiles =
-                                                    selectedLoraFiles.filterIndexed { i, _ -> i != index }
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Close,
-                                                contentDescription = "delete",
-                                                modifier = Modifier.size(16.dp),
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
-                                        }
-                                    }
-
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = stringResource(R.string.lora_weight),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        Slider(
-                                            value = loraFile.weight,
-                                            onValueChange = { newWeight ->
-                                                selectedLoraFiles =
-                                                    selectedLoraFiles.mapIndexed { i, file ->
-                                                        if (i == index) file.copy(weight = newWeight) else file
-                                                    }
-                                            },
-                                            valueRange = 0f..2f,
-                                            steps = 39,
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(24.dp),
-                                            colors = SliderDefaults.colors(
-                                                thumbColor = MaterialTheme.colorScheme.primary,
-                                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                                inactiveTrackColor = MaterialTheme.colorScheme.outline.copy(
-                                                    alpha = 0.3f
-                                                )
-                                            )
-                                        )
-
-                                        Text(
-                                            text = "%.2f".format(loraFile.weight),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-                                            modifier = Modifier.width(35.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (modelName.isNotBlank() && selectedFileUri != null) {
-                        onModelAdded(modelName, selectedFileUri!!, clipSkip, selectedLoraFiles)
-                    }
-                },
-                enabled = modelName.isNotBlank() && selectedFileUri != null
-            ) {
-                Text(stringResource(R.string.add_model))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
-        }
-    )
-}
-
-suspend fun extractNpuModel(
-    context: Context,
-    modelName: String,
-    zipUri: Uri,
-    onProgress: (String) -> Unit,
-    onStart: () -> Unit,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        withContext(Dispatchers.Main) {
-            onStart()
-            onProgress(context.getString(R.string.preparing_npu_model))
-        }
-
-        if (!Model.isQualcommDevice()) {
-            withContext(Dispatchers.Main) {
-                onError("Only Qualcomm devices are supported for custom NPU models")
-            }
-            return@withContext
-        }
-
-        val modelId = modelName.replace(" ", "")
-
-        val modelsDir = File(context.filesDir, "models")
-        if (!modelsDir.exists()) {
-            modelsDir.mkdirs()
-        }
-
-        val modelDir = File(modelsDir, modelId)
-        if (modelDir.exists()) {
-            modelDir.deleteRecursively()
-        }
-        modelDir.mkdirs()
-
-        withContext(Dispatchers.Main) {
-            onProgress(context.getString(R.string.extracting_zip_file))
-        }
-
-        val inputStream = context.contentResolver.openInputStream(zipUri)
-            ?: throw Exception("Cannot open selected zip file")
-
-        ZipInputStream(inputStream.buffered()).use { zipInputStream ->
-            var zipEntry = zipInputStream.nextEntry
-
-            while (zipEntry != null) {
-                if (!zipEntry.isDirectory) {
-                    val fileName = zipEntry.name.substringAfterLast('/')
-
-                    if (fileName.isNotEmpty() && !fileName.startsWith(".") && !fileName.startsWith("__MACOSX")) {
-                        val outputFile = File(modelDir, fileName)
-
-                        BufferedOutputStream(outputFile.outputStream()).use { outputStream ->
-                            zipInputStream.copyTo(outputStream)
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            onProgress("Extracted: $fileName")
-                        }
-                    }
-                }
-                zipEntry = zipInputStream.nextEntry
-            }
-        }
-
-        val npuCustomFile = File(modelDir, "npucustom")
-        npuCustomFile.createNewFile()
-
-        withContext(Dispatchers.Main) {
-            onSuccess()
-        }
-
-    } catch (e: Exception) {
-        Log.e("NpuModelExtract", "Extraction failed", e)
-
-        val modelId = modelName.replace(" ", "")
-        val modelDir = File(File(context.filesDir, "models"), modelId)
-        if (modelDir.exists()) {
-            modelDir.deleteRecursively()
-        }
-
-        withContext(Dispatchers.Main) {
-            onError("Extraction failed: ${e.message}")
-        }
-    }
-}
-
-@Composable
-fun EmbeddingManagerDialog(
-    context: Context,
-    onDismiss: () -> Unit,
-    onEmbeddingDeleted: () -> Unit,
-    onEmbeddingImported: () -> Unit
-) {
-    var embeddingFiles by remember { mutableStateOf<List<File>>(emptyList()) }
-    var showDeleteConfirm by remember { mutableStateOf<File?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
-    val scope = rememberCoroutineScope()
-
-    fun loadEmbeddings() {
-        val embeddingsDir = File(context.filesDir, "embeddings")
-        if (!embeddingsDir.exists()) {
-            embeddingsDir.mkdirs()
-        }
-        embeddingFiles = embeddingsDir.listFiles()?.filter {
-            it.isFile && it.extension == "safetensors"
-        }?.sortedBy { it.name } ?: emptyList()
-        isLoading = false
-    }
-
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    val embeddingPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri ->
-        uri?.let {
-            scope.launch {
-                importEmbedding(context, it, {
-                    loadEmbeddings()
-                    onEmbeddingImported()
-                }) { error ->
-                    errorMessage = error
-                }
-            }
-        }
-    }
-
-    if (errorMessage != null) {
-        AlertDialog(
-            onDismissRequest = { errorMessage = null },
-            title = { Text(stringResource(R.string.embedding_import_failed, "")) },
-            text = { Text(errorMessage ?: "") },
-            confirmButton = {
-                TextButton(onClick = { errorMessage = null }) {
-                    Text(stringResource(R.string.confirm))
-                }
-            }
-        )
-    }
-
-    LaunchedEffect(Unit) {
-        loadEmbeddings()
-    }
-
-    if (showDeleteConfirm != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = null },
-            title = { Text(stringResource(R.string.delete_embedding)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.delete_embedding_confirm,
-                        showDeleteConfirm!!.name
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val fileToDelete = showDeleteConfirm!!
-                        if (fileToDelete.delete()) {
-                            onEmbeddingDeleted()
-                            loadEmbeddings()
-                        }
-                        showDeleteConfirm = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text(stringResource(R.string.delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = null }) {
-                    Text(stringResource(R.string.cancel))
-                }
-            }
-        )
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = stringResource(R.string.embedding_manager),
-                style = MaterialTheme.typography.headlineSmall
-            )
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(400.dp)
-            ) {
-                if (isLoading) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                } else if (embeddingFiles.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Description,
-                                contentDescription = null,
-                                modifier = Modifier.size(48.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                stringResource(R.string.no_embeddings),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(embeddingFiles) { file ->
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                                )
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Description,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Column {
-                                            Text(
-                                                text = file.nameWithoutExtension,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                            Text(
-                                                text = formatFileSize(file.length()),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                                    alpha = 0.6f
-                                                )
-                                            )
-                                        }
-                                    }
-
-                                    IconButton(
-                                        onClick = { showDeleteConfirm = file },
-                                        colors = IconButtonDefaults.iconButtonColors(
-                                            contentColor = MaterialTheme.colorScheme.error
-                                        )
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = stringResource(R.string.delete_embedding)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                OutlinedButton(
-                    onClick = {
-                        embeddingPickerLauncher.launch("application/octet-stream")
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.import_embedding))
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.close))
-            }
-        }
-    )
-}
-
-suspend fun importEmbedding(
-    context: Context,
-    fileUri: Uri,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        val embeddingsDir = File(context.filesDir, "embeddings")
-        if (!embeddingsDir.exists()) {
-            embeddingsDir.mkdirs()
-        }
-
-        val fileName =
-            context.contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
-                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                cursor.moveToFirst()
-                cursor.getString(nameIndex)
-            } ?: "embedding_${System.currentTimeMillis()}.safetensors"
-
-        // Validate file extension
-        if (!fileName.endsWith(".safetensors", ignoreCase = true)) {
-            withContext(Dispatchers.Main) {
-                onError(context.getString(R.string.only_safetensors_supported))
-            }
-            return@withContext
-        }
-
-        val targetFile = File(embeddingsDir, fileName)
-
-        context.contentResolver.openInputStream(fileUri)?.use { input ->
-            targetFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-
-        withContext(Dispatchers.Main) {
-            onSuccess()
-        }
-    } catch (e: Exception) {
-        withContext(Dispatchers.Main) {
-            onError(e.message ?: "Unknown error")
-        }
-    }
-}
-
-suspend fun convertCustomModel(
-    context: Context,
-    modelName: String,
-    fileUri: Uri,
-    clipSkip: Int,
-    loraFiles: List<LoRAFile>,
-    onProgress: (String) -> Unit,
-    onStart: () -> Unit,
-    onSuccess: () -> Unit,
-    onError: (String) -> Unit
-) = withContext(Dispatchers.IO) {
-    try {
-        withContext(Dispatchers.Main) {
-            onStart()
-            onProgress(context.getString(R.string.preparing_model))
-        }
-
-        val modelId = modelName.replace(" ", "")
-
-        val modelsDir = File(context.filesDir, "models")
-        if (!modelsDir.exists()) {
-            modelsDir.mkdirs()
-        }
-
-        val modelDir = File(modelsDir, modelId)
-        if (modelDir.exists()) {
-            modelDir.deleteRecursively()
-        }
-        modelDir.mkdirs()
-
-        withContext(Dispatchers.Main) {
-            onProgress(context.getString(R.string.copying_model_file))
-        }
-
-        val inputStream = context.contentResolver.openInputStream(fileUri)
-            ?: throw Exception("Cannot open selected file")
-        val modelFile = File(modelDir, "model.safetensors")
-
-        inputStream.use { input ->
-            modelFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-
-        withContext(Dispatchers.Main) {
-            onProgress(context.getString(R.string.copying_lora_files))
-        }
-
-        loraFiles.forEachIndexed { index, loraFile ->
-            val loraInputStream = context.contentResolver.openInputStream(loraFile.uri)
-                ?: throw Exception("Cannot open LoRA file ${index + 1}")
-            val loraFileTarget = File(modelDir, "lora.${index + 1}.safetensors")
-            val loraWeightFile = File(modelDir, "lora.${index + 1}.weight")
-
-            loraInputStream.use { input ->
-                loraFileTarget.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-
-            loraWeightFile.writeText(loraFile.weight.toString())
-        }
-
-        withContext(Dispatchers.Main) {
-            onProgress(context.getString(R.string.copying_base_files))
-        }
-
-        fun copyAssetsRecursively(assetPath: String, targetDir: File) {
-            val assetManager = context.assets
-            val assets = assetManager.list(assetPath) ?: emptyArray()
-
-            if (assets.isEmpty()) {
-                try {
-                    val assetInputStream = assetManager.open(assetPath)
-                    val fileName = assetPath.substringAfterLast("/")
-                    val targetFile = File(targetDir, fileName)
-
-                    assetInputStream.use { input ->
-                        targetFile.outputStream().use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("ModelConvert", "Could not copy asset: $assetPath", e)
-                }
-            } else {
-                for (asset in assets) {
-                    val subAssetPath = "$assetPath/$asset"
-                    val subAssets = assetManager.list(subAssetPath) ?: emptyArray()
-
-                    if (subAssets.isEmpty()) {
-                        try {
-                            val assetInputStream = assetManager.open(subAssetPath)
-                            val targetFile = File(targetDir, asset)
-
-                            assetInputStream.use { input ->
-                                targetFile.outputStream().use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.w(
-                                "ModelConvert",
-                                "Could not copy file: $subAssetPath",
-                                e
-                            )
-                        }
-                    } else {
-                        val subTargetDir = File(targetDir, asset)
-                        subTargetDir.mkdirs()
-                        copyAssetsRecursively(subAssetPath, subTargetDir)
-                    }
-                }
-            }
-        }
-
-        copyAssetsRecursively("cvtbase", modelDir)
-
-        withContext(Dispatchers.Main) {
-            onProgress(context.getString(R.string.converting_model))
-        }
-
-        val nativeDir = context.applicationInfo.nativeLibraryDir
-        val executableFile = File(nativeDir, "libstable_diffusion_core.so")
-
-        if (!executableFile.exists()) {
-            throw Exception("Executable not found: ${executableFile.absolutePath}")
-        }
-
-        var command = listOf(
-            executableFile.absolutePath,
-            "--convert",
-            modelDir.absolutePath
-        )
-        val clipSourceFile =
-            File(modelDir, if (clipSkip == 2) "clip_skip_2.mnn" else "clip_skip_1.mnn")
-        val clipTargetFile = File(modelDir, "clip_v2.mnn")
-        clipSourceFile.copyTo(clipTargetFile, overwrite = true)
-        if (clipSkip == 2) {
-            command += listOf("--clip_skip_2")
-        }
-        val env = mutableMapOf<String, String>()
-        val systemLibPaths = listOf(
-            nativeDir,
-            "/system/lib64",
-            "/vendor/lib64",
-            "/vendor/lib64/egl"
-        ).joinToString(":")
-
-        env["LD_LIBRARY_PATH"] = systemLibPaths
-        env["DSP_LIBRARY_PATH"] = nativeDir
-
-        val processBuilder = ProcessBuilder(command).apply {
-            directory(File(nativeDir))
-            redirectErrorStream(true)
-            environment().putAll(env)
-        }
-
-        val process = processBuilder.start()
-
-        process.inputStream.bufferedReader().use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                Log.i("ModelConvert", "Convert: $line")
-                withContext(Dispatchers.Main) {
-                    onProgress("Converting: $line")
-                }
-            }
-        }
-
-        val exitCode = process.waitFor()
-        Log.i("ModelConvert", "Conversion process exited with code: $exitCode")
-
-        val finishedFile = File(modelDir, "finished")
-        if (finishedFile.exists()) {
-            modelFile.delete()
-            val clipSkip1File = File(modelDir, "clip_skip_1.mnn")
-            if (clipSkip1File.exists()) {
-                clipSkip1File.delete()
-            }
-            val clipSkip2File = File(modelDir, "clip_skip_2.mnn")
-            if (clipSkip2File.exists()) {
-                clipSkip2File.delete()
-            }
-
-            loraFiles.forEachIndexed { index, _ ->
-                val loraFile = File(modelDir, "lora.${index + 1}.safetensors")
-                val loraWeightFile = File(modelDir, "lora.${index + 1}.weight")
-                if (loraFile.exists()) {
-                    loraFile.delete()
-                }
-                if (loraWeightFile.exists()) {
-                    loraWeightFile.delete()
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                onSuccess()
-            }
-        } else {
-            modelDir.deleteRecursively()
-            withContext(Dispatchers.Main) {
-                onError("Model conversion failed: Please use SD1.5 safetensors model")
-            }
-        }
-
-    } catch (e: Exception) {
-        Log.e("ModelConvert", "Conversion failed", e)
-
-        val modelId = modelName.replace(" ", "")
-        val modelDir = File(File(context.filesDir, "models"), modelId)
-        if (modelDir.exists()) {
-            modelDir.deleteRecursively()
-        }
-
-        withContext(Dispatchers.Main) {
-            onError("Conversion failed: ${e.message}")
-        }
-    }
-}
-
-private fun getFileNameFromUri(context: Context, uri: Uri): String? {
-    return try {
-        when (uri.scheme) {
-            "content" -> {
-                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex != -1) {
-                        cursor.getString(nameIndex)
-                    } else {
-                        null
-                    }
-                }
-            }
-
-            "file" -> {
-                uri.lastPathSegment
-            }
-
-            else -> {
-                DocumentFile.fromSingleUri(context, uri)?.name
-            }
-        }
-    } catch (e: Exception) {
-        Log.e("GetFileName", "Get file name from uri failed", e)
-        null
-    }
 }

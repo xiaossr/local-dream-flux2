@@ -10,6 +10,7 @@
     <string name="absolutereality_description">现实场景生成模型</string>
     <string name="sd21_description">通用图像生成模型</string>
     <string name="ponyv55_description">Pony Diffusion系列</string>
+    <string name="flux2klein_description">FLUX.2 蒸馏图像生成模型</string>
 
     <!-- Models -->
     <string name="backend_notify">模型服务运行中</string>
@@ -30,7 +31,7 @@
     <string name="yes">是</string>
     <string name="no">否</string>
     <string name="about_app">须知</string>
-    <string name="must_read">此APP支持在CPU/GPU和部分高通NPU上运行stable diffusion图像生成。\n\n如您的芯片不是下列之一，则只能用CPU/GPU运行，支持的NPU列表:\n\n- 骁龙 8 Gen 1\n- 骁龙 8 Gen 2\n- 骁龙 8 Gen 3\n- 骁龙 8 Elite\n- 骁龙 8 Elite Gen 5\n\n对于具有 Hexagon V68 架构或更新 NPU 的高通芯片，提供实验性支持，但不保证能在 NPU 上运行。\n\n本项目在 https://github.com/xororz/local-dream 开源，可以在github上查看源代码或提交问题</string>
+    <string name="must_read">此应用支持使用 FLUX.2 和 ExecuTorch 在设备上进行图像生成。\n\n本项目在 https://github.com/xororz/local-dream 开源，可以在github上查看源代码或提交问题</string>
     <string name="help">help</string>
 
     <!-- Model List Screen -->
@@ -63,7 +64,7 @@
     <string name="no_npu_models">暂无模型</string>
     <string name="img2img_hint">开启img2img功能，如果你不需要或遇到问题请关闭</string>
     <string name="show_process">显示生成过程</string>
-    <string name="show_process_hint">仅对NPU模型生效。开启后将显示扩散模型的中间生成步骤。这会降低生成速度，仅在好奇图像生成过程时开启，正常情况下请关闭。</string>
+    <string name="show_process_hint">开启后将显示中间生成步骤。这会降低生成速度，仅在好奇图像生成过程时开启，正常情况下请关闭。</string>
     <string name="preview_stride">预览步长</string>
     <string name="preview_stride_hint">每 %d 步更新一次预览（1-10）。</string>
     <string name="download_patch">下载高分辨率补丁</string>
@@ -181,7 +182,7 @@
     <string name="zip_file_selected">ZIP文件已选择</string>
     <string name="file_selected">文件已选择</string>
     <string name="add_model">添加模型</string>
-    <string name="custom_model_hint">仅支持SD1.5架构的safetensors模型文件</string>
+    <string name="custom_model_hint">将 FLUX.2 ExecuTorch 模型文件（.pte）放入模型目录</string>
     <string name="custom_npu_model_hint">选择包含NPU模型文件的ZIP压缩包。仅支持高通芯片设备。</string>
     <string name="converting">转换中…</string>
     <string name="model_conversion_success">模型转换成功！</string>

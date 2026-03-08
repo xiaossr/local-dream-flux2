@@ -10,6 +10,7 @@
     <string name="absolutereality_description">Realistic Image Generation</string>
     <string name="sd21_description">General Image Generation</string>
     <string name="ponyv55_description">Pony Diffusion Series</string>
+    <string name="flux2klein_description">FLUX.2 Distilled Image Generation</string>
 
     <!-- Models -->
     <string name="backend_notify">Model Backend Service Running</string>
@@ -30,7 +31,7 @@
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="about_app">Note</string>
-    <string name="must_read">This APP supports running stable diffusion image generation on CPU/GPU and some Qualcomm NPUs.\n\nIf your chip is not one of the following, you can only run it on CPU/GPU. Supported NPU list:\n\n- Snapdragon 8 Gen 1\n- Snapdragon 8 Gen 2\n- Snapdragon 8 Gen 3\n- Snapdragon 8 Elite\n- Snapdragon 8 Elite Gen 5\n\nFor NPU with Hexagon V68 architecture or newer, experimental support is provided, but NPU execution is not guaranteed.\n\nThis project is open source at https://github.com/xororz/local-dream where you can view the source code or submit issues</string>
+    <string name="must_read">This app supports on-device image generation using FLUX.2 with ExecuTorch.\n\nThis project is open source at https://github.com/xororz/local-dream where you can view the source code or submit issues</string>
     <string name="help">help</string>
 
     <!-- Model List Screen -->
@@ -63,7 +64,7 @@
     <string name="no_npu_models">No Models</string>
     <string name="img2img_hint">Use img2img feature. Turn off if you don\'t need or encounter any problems.</string>
     <string name="show_process">Show Generation Process</string>
-    <string name="show_process_hint">Only works for NPU models. Show intermediate generation steps. This will slow down generation speed. Enable only when curious about the process.</string>
+    <string name="show_process_hint">Show intermediate generation steps. This will slow down generation speed. Enable only when curious about the process.</string>
     <string name="preview_stride">Preview Stride</string>
     <string name="preview_stride_hint">Update preview every %d steps (1-10).</string>
     <string name="download_patch">Download High Resolution Patch</string>
@@ -181,7 +182,7 @@
     <string name="zip_file_selected">ZIP File Selected</string>
     <string name="file_selected">File Selected</string>
     <string name="add_model">Add Model</string>
-    <string name="custom_model_hint">Only supports SD1.5 architecture safetensors model files</string>
+    <string name="custom_model_hint">Place FLUX.2 ExecuTorch model files (.pte) in the models directory</string>
     <string name="custom_npu_model_hint">Select a ZIP file containing NPU model files. Only available on Qualcomm devices.</string>
     <string name="converting">Converting…</string>
     <string name="model_conversion_success">Model conversion successful!</string>

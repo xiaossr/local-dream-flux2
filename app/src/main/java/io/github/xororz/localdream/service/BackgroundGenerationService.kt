@@ -107,8 +107,7 @@ class BackgroundGenerationService : Service() {
         val width = intent.getIntExtra("width", 512)
         val height = intent.getIntExtra("height", 512)
         val denoiseStrength = intent.getFloatExtra("denoise_strength", 0.6f)
-        val useOpenCL = intent.getBooleanExtra("use_opencl", false)
-        val scheduler = intent.getStringExtra("scheduler") ?: "dpm"
+        val scheduler = intent.getStringExtra("scheduler") ?: "euler"
 
         val image = if (intent.getBooleanExtra("has_image", false)) {
             try {
@@ -165,7 +164,6 @@ class BackgroundGenerationService : Service() {
                 image,
                 mask,
                 denoiseStrength,
-                useOpenCL,
                 scheduler
             )
         }
@@ -184,7 +182,6 @@ class BackgroundGenerationService : Service() {
         image: String?,
         mask: String?,
         denoiseStrength: Float,
-        useOpenCL: Boolean,
         scheduler: String
     ) = withContext(Dispatchers.IO) {
         try {
@@ -204,7 +201,6 @@ class BackgroundGenerationService : Service() {
                 put("width", width)
                 put("height", height)
                 put("denoise_strength", denoiseStrength)
-                put("use_opencl", useOpenCL)
                 put("scheduler", scheduler)
                 put("show_diffusion_process", showProcess)
                 put("show_diffusion_stride", showStride)
@@ -449,7 +445,6 @@ class BackgroundGenerationService : Service() {
             .setContentTitle(this.getString(R.string.generating_notify))
             .setContentText("Progress: ${(progress * 100).toInt()}%")
             .setProgress(100, (progress * 100).toInt(), false)
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
