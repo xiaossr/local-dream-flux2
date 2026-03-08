@@ -20,8 +20,8 @@
       },
       "toolchainFile": "$env{ANDROID_NDK_ROOT}/build/cmake/android.toolchain.cmake",
       "environment": {
-        "ANDROID_NDK_ROOT": "/Users/xiaog/urop/android-ndk-r28",
-        "EXECUTORCH_ROOT": "/Users/xiaog/urop/executorch/cmake-out-android"
+        "ANDROID_NDK_ROOT": "/Users/zhuoyangz/android-ndk-r28c",
+        "EXECUTORCH_ROOT": "/Users/zhuoyangz/Desktop/hackthon/executorch/cmake-out-android"
       }
     },
     {

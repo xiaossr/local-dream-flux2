@@ -19,6 +19,8 @@
 // ExecuTorch
 #include <executorch/extension/module/module.h>
 #include <executorch/extension/tensor/tensor.h>
+#include <executorch/extension/threadpool/threadpool.h>
+#include <executorch/extension/threadpool/cpuinfo_utils.h>
 #include <executorch/runtime/core/evalue.h>
 #include <executorch/runtime/core/exec_aten/exec_aten.h>
 
@@ -823,9 +825,6 @@ static GenerationResult generateImage(
               << std::endl;
   }
 
-  // VAE scaling
-  vaeScaleLatents(lat_full);
-
   // VAE decode (load → run → release)
   std::cout << "  loading vae_decoder..." << std::endl;
   fflush(stdout);
@@ -952,6 +951,24 @@ static void parseArgs(int argc, char **argv) {
 
 int main(int argc, char **argv) {
   parseArgs(argc, argv);
+
+  // Configure thread pool to use only performance cores.
+  // Without this, pthreadpool defaults to ALL cores, including slow efficiency
+  // cores, which can cause 10-20x slowdowns on Android.
+  {
+    uint32_t num_threads =
+        ::executorch::extension::cpuinfo::get_num_performant_cores();
+    if (num_threads == 0) {
+      num_threads = 4;
+    }
+    std::cout << "Setting threadpool to " << num_threads << " threads"
+              << std::endl;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    ::executorch::extension::threadpool::get_threadpool()
+        ->_unsafe_reset_threadpool(num_threads);
+#pragma GCC diagnostic pop
+  }
 
   // --- Load config ---
   std::cout << "Loading export config: " << g_config_path << std::endl;
