@@ -186,6 +186,48 @@ adb push vae_bn_stats.json /data/local/tmp/localdream/models/flux2klein/
 adb push tokenizer/ /data/local/tmp/localdream/models/flux2klein/tokenizer/
 ```
 
+## img2img (图生图) 支持
+
+App 支持 img2img：基于参考图片 + 文字描述生成新图片。需要额外的模型文件。
+
+### 导出 img2img 模型
+
+在 `dev-vis-gen` 目录下重新导出，加上 `--num_img2img_images 1`：
+
+```bash
+cd dev-vis-gen
+python export_flux2_klein_xnnpack.py \
+    --output_dir ./exported_flux2_klein \
+    --text_encoder_8da4w \
+    --embedding_quantize 8 \
+    --w8a8 \
+    --num_img2img_images 1
+```
+
+这会额外生成：
+- `vae_encoder.pte` — VAE 编码器（将参考图编码为 latent）
+- `transformer_img2img.pte` — img2img transformer（处理参考图 + 噪声 token）
+
+### 部署 img2img 模型到手机
+
+将额外的模型文件 push 到与 txt2img 模型相同的目录：
+
+```bash
+adb push exported_flux2_klein/vae_encoder.pte /data/local/tmp/localdream/models/flux2klein/
+adb push exported_flux2_klein/transformer_img2img.pte /data/local/tmp/localdream/models/flux2klein/
+```
+
+App 后端（`BackendService`）启动时会自动检测这两个文件，如果存在则启用 img2img 功能。
+
+### 使用 img2img
+
+1. 在 Model Run 页面，点击图片选择按钮选择一张参考图
+2. 裁剪图片到模型所需的分辨率（512x512）
+3. 输入 prompt 描述希望生成的内容
+4. 点击 Generate
+
+后端会将参考图编码为 latent，与噪声 token 拼接后一起送入 img2img transformer 进行去噪。
+
 ## 硬件要求
 
 - **ARM64 Android 手机**（arm64-v8a）

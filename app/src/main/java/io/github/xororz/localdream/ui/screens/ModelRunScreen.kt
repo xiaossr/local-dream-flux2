@@ -238,6 +238,39 @@ private suspend fun checkBackendHealth(
     }
 }
 
+// ============================================================================
+// Preset prompts — add your own here!
+// Each entry has a short label (shown on the chip) and the full prompt text.
+// ============================================================================
+data class PresetPrompt(val label: String, val prompt: String)
+
+val PRESET_PROMPTS = listOf(
+    PresetPrompt(
+        "Lin Yuelan (Female) - A famous opera singer invited to perform privately at the manor",
+        "Make her a beautiful Republican-era Chinese opera singer, wearing a dark emerald velvet qipao with subtle traditional embroidery, keep the original character"
+    ),
+    PresetPrompt(
+        "Gu Beichen (Male) - A wealthy businessman and patron of the arts",
+        "Make him a wealthy gentle businessman in Republican-era China, wearing a perfectly tailored black three-piece suit with a dark overcoat, keep the original character"
+    ),
+    PresetPrompt(
+        "Xu Anning (Female) - A quiet doctor who claims she was invited to care for the elderly host",
+        "Make her a quiet doctor wearing a cream blouse in Republican-era China, long charcoal wool coat, and a modest dark skirt, keep the original character"
+    ),
+    PresetPrompt(
+        "Zhao Shiyan (Male) - A former police investigator once assigned to the theater fire case",
+        "Make him a former police investigator in Republican-era China, wearing a dark brown trench coat over a formal shirt and vest, keep the original character"
+    ),
+    PresetPrompt(
+        "Madam Rong (Female) - The late theater troupe’s former costume designer, now a wealthy widow",
+        "Make her a former costume designer in Republican-era China, wearing a deep wine-red silk qipao with a luxurious dark fur shawl, keep the original character"
+    ),
+    PresetPrompt(
+        "Song He (Male) - The manor’s loyal steward and the person who welcomed everyone in",
+        "Make him a loyal steward who welcomed everyone in in Republican-era China, wearing a neat black traditional servant uniform with subtle old-fashioned details, keep the original character"
+    ),
+)
+
 data class GenerationParameters(
     val steps: Int,
     val cfg: Float,
@@ -1304,6 +1337,22 @@ fun ModelRunScreen(
                                 }
                             }
                         )
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            PRESET_PROMPTS.forEach { preset ->
+                                FilterChip(
+                                    selected = prompt == preset.prompt,
+                                    onClick = {
+                                        onPromptChange(preset.prompt)
+                                    },
+                                    label = { Text(preset.label) },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
 
                         Button(
                             onClick = {

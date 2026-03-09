@@ -115,6 +115,7 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.material3.xml)
     implementation(libs.coil.compose)
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     // implementation(libs.cropify) // TODO: re-enable when JitPack is back up
 
     testImplementation(libs.junit)
